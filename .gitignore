@@ -39,3 +39,28 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+# database
+# Unanchored on purpose: /prisma/*.db missed a stray dev.db in the repo root,
+# which would have published ~48k real prospect records — names, emails,
+# companies, phone numbers.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Playwright selector-inspection artefacts (may contain account screenshots)
+_inspect-*.png
+
+# Throwaway probe scripts used while diagnosing the QuickMail API.
+_*.mjs
+_*.ts
+_*.py
+
+# Local editor / AI-assistant configuration. Not part of the application, and
+# it outnumbered the actual source 207 files to 119.
+/.agents/
+/.claude/
+/.windsurf/
