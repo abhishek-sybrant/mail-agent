@@ -1,6 +1,12 @@
 import "dotenv/config";
 import { chromium } from "playwright";
-import { finishCampaignInUi, uiAutomationStatus } from "../src/lib/quickmail/ui-automation";
+import {
+  CDP_PORT,
+  cdpAvailable,
+  finishCampaignInUi,
+  uiAutomationEnabled,
+  uiAutomationStatus,
+} from "../src/lib/quickmail/ui-automation";
 import { query } from "../src/lib/quickmail/client";
 
 /**
@@ -21,29 +27,43 @@ const args = process.argv.slice(2);
 const campaignUrl = args.find((a) => a.startsWith("http"));
 const headed = args.includes("--headed");
 const inspect = args.includes("--inspect");
+/** Drive the browser the user already has open and is signed into. */
+const attach = args.includes("--attach") || process.env.QUICKMAIL_UI_MODE === "attach";
 const leadsPerDay = Number(args.find((a) => /^\d+$/.test(a)) ?? 1);
 
 if (!campaignUrl) {
   console.error(
-    "usage: npx tsx scripts/finish-campaign.ts <campaignUrl> [leadsPerDay] [--headed|--inspect]",
+    "usage: npx tsx scripts/finish-campaign.ts <campaignUrl> [leadsPerDay] [--attach|--headed|--inspect]",
   );
   process.exit(1);
 }
 
 /** Prints the interactive elements on both tabs so selectors can be corrected. */
 async function inspectPages(url: string) {
-  const browser = await chromium.launch({ headless: !headed });
-  const page = await browser.newPage();
-  page.setDefaultTimeout(20_000);
+  let browser;
+  let page;
 
-  await page.goto("https://next.quickmail.com/login", { waitUntil: "domcontentloaded" });
-  await page.locator('input[type="email"], input[name="email"]').first()
-    .fill(process.env.QUICKMAIL_UI_EMAIL!);
-  await page.locator('input[type="password"]').first()
-    .fill(process.env.QUICKMAIL_UI_PASSWORD!);
-  await page.locator('button[type="submit"]').first().click();
-  await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 30_000 });
-  console.log("signed in\n");
+  if (attach) {
+    // Reuse the signed-in browser rather than logging in again.
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    const ctx = browser.contexts()[0];
+    page =
+      ctx.pages().find((p) => p.url().includes("quickmail.com")) ??
+      (await ctx.newPage());
+    console.log("attached to the running browser\n");
+  } else {
+    browser = await chromium.launch({ headless: !headed });
+    page = await browser.newPage();
+    await page.goto("https://next.quickmail.com/login", { waitUntil: "domcontentloaded" });
+    await page.locator('input[type="email"], input[name="email"]').first()
+      .fill(process.env.QUICKMAIL_UI_EMAIL!);
+    await page.locator('input[type="password"]').first()
+      .fill(process.env.QUICKMAIL_UI_PASSWORD!);
+    await page.locator('button[type="submit"]').first().click();
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 30_000 });
+    console.log("signed in\n");
+  }
+  page.setDefaultTimeout(20_000);
 
   for (const tab of ["automation", "dashboard"]) {
     await page.goto(`${url}/${tab}`, { waitUntil: "domcontentloaded" });
@@ -130,9 +150,22 @@ async function verify(url: string) {
 }
 
 async function main() {
-  if (uiAutomationStatus() !== "enabled") {
+  if (!uiAutomationEnabled()) {
     console.error(`UI automation is off: ${uiAutomationStatus()}`);
-    console.error("Set QUICKMAIL_UI_AUTOMATION=true, QUICKMAIL_UI_EMAIL and QUICKMAIL_UI_PASSWORD in .env");
+    console.error(
+      "Set QUICKMAIL_UI_AUTOMATION=true, then either QUICKMAIL_UI_MODE=attach " +
+        "(drive your own signed-in browser) or QUICKMAIL_UI_EMAIL/PASSWORD.",
+    );
+    process.exit(1);
+  }
+
+  if (attach && !(await cdpAvailable())) {
+    console.error(`No debuggable browser on port ${CDP_PORT}.`);
+    console.error("Close Edge, then relaunch it with:");
+    console.error(
+      `  & "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --remote-debugging-port=${CDP_PORT}`,
+    );
+    console.error("Sign in to QuickMail in that window, then re-run this.");
     process.exit(1);
   }
 
@@ -142,7 +175,7 @@ async function main() {
   }
 
   console.log(`finishing ${campaignUrl} (leads/day ${leadsPerDay})`);
-  const r = await finishCampaignInUi({ campaignUrl: campaignUrl!, leadsPerDay, headed });
+  const r = await finishCampaignInUi({ campaignUrl: campaignUrl!, leadsPerDay, headed, attach });
   for (const line of r.log) console.log(`  ${line}`);
   if (r.error) console.error(`  error: ${r.error}`);
   console.log(`  trigger set: ${r.triggerSet} | unpaused: ${r.unpaused}`);

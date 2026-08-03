@@ -32,9 +32,30 @@ export type UiResult = {
   error?: string;
 };
 
+/**
+ * Port of an Edge/Chrome the user launched themselves with
+ * `--remote-debugging-port`. Attaching to their signed-in browser avoids
+ * storing a QuickMail password anywhere, and avoids a second login.
+ */
+export const CDP_PORT = Number(process.env.QUICKMAIL_UI_CDP_PORT ?? 9222);
+
+/** Is a debuggable browser listening right now? */
+export async function cdpAvailable(): Promise<boolean> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function uiAutomationEnabled(): boolean {
+  if (process.env.QUICKMAIL_UI_AUTOMATION !== "true") return false;
+  // Attach mode needs no credentials; headless mode does.
+  if (process.env.QUICKMAIL_UI_MODE === "attach") return true;
   return (
-    process.env.QUICKMAIL_UI_AUTOMATION === "true" &&
     Boolean(process.env.QUICKMAIL_UI_EMAIL) &&
     Boolean(process.env.QUICKMAIL_UI_PASSWORD)
   );
@@ -45,6 +66,7 @@ export function uiAutomationStatus(): string {
   if (process.env.QUICKMAIL_UI_AUTOMATION !== "true") {
     return "QUICKMAIL_UI_AUTOMATION is not 'true'";
   }
+  if (process.env.QUICKMAIL_UI_MODE === "attach") return "enabled (attach mode)";
   if (!process.env.QUICKMAIL_UI_EMAIL || !process.env.QUICKMAIL_UI_PASSWORD) {
     return "QUICKMAIL_UI_EMAIL / QUICKMAIL_UI_PASSWORD are not set";
   }
@@ -199,19 +221,58 @@ export async function finishCampaignInUi(opts: {
   leadsPerDay: number;
   /** Set true to watch it happen, for debugging selectors. */
   headed?: boolean;
+  /** Drive the browser the user already has open, instead of launching one. */
+  attach?: boolean;
 }): Promise<UiResult> {
   const log: string[] = [];
   if (!uiAutomationEnabled()) {
     return { ok: false, unpaused: false, triggerSet: false, log, error: uiAutomationStatus() };
   }
 
+  const attach =
+    process.env.QUICKMAIL_UI_MODE === "attach" || opts.attach === true;
+
   let browser: Browser | null = null;
   try {
-    browser = await chromium.launch({ headless: opts.headed !== true });
-    const page = await browser.newPage();
+    let page: Page;
+
+    if (attach) {
+      /**
+       * Drive the browser the user is already in.
+       *
+       * They are signed into QuickMail there, so there is no login step and no
+       * password to store. It also means they can watch it happen, which for a
+       * flow this fragile is a feature — a wrong click is visible immediately
+       * rather than discovered later via a campaign that never sent.
+       */
+      if (!(await cdpAvailable())) {
+        return {
+          ok: false,
+          unpaused: false,
+          triggerSet: false,
+          log,
+          error:
+            `No debuggable browser on port ${CDP_PORT}. Start Edge with ` +
+            `--remote-debugging-port=${CDP_PORT} (see README) and sign in to QuickMail.`,
+        };
+      }
+      browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+      const ctx = browser.contexts()[0];
+      if (!ctx) throw new Error("Attached browser has no context");
+      // Reuse a QuickMail tab if one is open, so their session and any
+      // in-page state carry over; otherwise open a new tab beside their work.
+      page =
+        ctx.pages().find((p) => p.url().includes("quickmail.com")) ??
+        (await ctx.newPage());
+      log.push("attached to the running browser");
+    } else {
+      browser = await chromium.launch({ headless: opts.headed !== true });
+      page = await browser.newPage();
+      await login(page, log);
+    }
+
     page.setDefaultTimeout(15_000);
 
-    await login(page, log);
     const triggerSet = await setTrigger(page, opts.campaignUrl, opts.leadsPerDay, log);
     const unpaused = await unpause(page, opts.campaignUrl, log);
 
@@ -225,6 +286,9 @@ export async function finishCampaignInUi(opts: {
       error: (error as Error).message,
     };
   } finally {
+    // For an attached browser this only drops the CDP connection; Playwright
+    // leaves a browser it did not launch running, so the user's window and
+    // tabs survive. For one we launched, it shuts it down.
     await browser?.close().catch(() => undefined);
   }
 }
