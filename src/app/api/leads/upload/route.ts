@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { partitionSuppressed } from "@/lib/suppression";
 import { guessMapping, parseUpload } from "@/lib/import/parse";
 import { splitName, validateEmail } from "@/lib/import/validate";
 
@@ -165,20 +166,52 @@ export async function POST(request: Request) {
   const known = new Set(existing.map((e) => e.email));
   const fresh = accepted.filter((a) => !known.has(a.email));
 
+  /**
+   * Flag known-dead addresses as they arrive.
+   *
+   * The row is still created — losing the contact record would hide the fact
+   * that this file contains addresses we already know bounced — but it comes in
+   * pre-suppressed so it can never be picked for a campaign. Without this a
+   * re-uploaded spreadsheet resurrects every bad address with a clean
+   * `suppressed: false`, which is how the same addresses came to bounce dozens
+   * of times each.
+   */
+  const { blocked } = await partitionSuppressed(fresh.map((a) => a.email));
+  const barred = new Map(blocked.map((b) => [b.email, b]));
+
   const created = await prisma.lead.createMany({
-    data: fresh.map((a) => ({
-      email: a.email,
-      name: a.name,
-      first_name: a.first_name,
-      last_name: a.last_name,
-      company: a.company,
-      title: a.title,
-      phone: a.phone,
-      location: a.location,
-      source: parsed.kind,
-      import_batch_id: batch.id,
-    })),
+    data: fresh.map((a) => {
+      const hit = barred.get(a.email.trim().toLowerCase());
+      return {
+        email: a.email,
+        name: a.name,
+        first_name: a.first_name,
+        last_name: a.last_name,
+        company: a.company,
+        title: a.title,
+        phone: a.phone,
+        location: a.location,
+        source: parsed.kind,
+        import_batch_id: batch.id,
+        ...(hit
+          ? {
+              suppressed: true,
+              suppressed_reason: `On the suppression list (${hit.reason}, ${hit.hits}x)`,
+              status: hit.reason === "BOUNCE" ? ("BOUNCED" as const) : ("DNC" as const),
+              ai_intent_score: 0,
+            }
+          : {}),
+      };
+    }),
   });
+
+  // A repeat means this file re-introduced an address already known to be dead.
+  if (barred.size > 0) {
+    await prisma.suppression.updateMany({
+      where: { email: { in: [...barred.keys()] } },
+      data: { hits: { increment: 1 } },
+    });
+  }
 
   await prisma.importBatch.update({
     where: { id: batch.id },
@@ -195,6 +228,7 @@ export async function POST(request: Request) {
     ...summary,
     imported: created.count,
     already_existed: accepted.length - created.count,
+    suppressed_on_arrival: barred.size,
     rejected: rejected.slice(0, 25),
   });
 }

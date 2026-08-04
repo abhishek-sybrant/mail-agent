@@ -351,3 +351,44 @@ model AgentConversation {
 
   @@index([updated_at])
 }
+
+/// Addresses that must never be emailed again.
+///
+/// Keyed on the address itself, not a Lead row, and deliberately never deleted
+/// with the lead. Re-importing a spreadsheet creates a fresh Lead and would
+/// otherwise resurrect a dead address — which is exactly what has been
+/// happening: roughly 41 bounce events per unique bad address across the
+/// account, and 139 campaigns above a 5% bounce rate.
+///
+/// QuickMail's API cannot supply historical bounces (no lead-level
+/// deliverability field, no bounce query, only per-campaign totals), so this is
+/// fed by the bounce webhook, by CSV exports from QuickMail, and by negative
+/// or unsubscribe replies.
+model Suppression {
+  id    String @id @default(cuid())
+  /// Always stored lowercased and trimmed.
+  email String @unique
+
+  reason SuppressionReason
+  /// Where it came from: webhook, import, reply, manual.
+  source String
+
+  /// How many times this address has bounced. A repeat offender is evidence the
+  /// import pipeline keeps reintroducing it.
+  hits Int @default(1)
+
+  note       String?
+  first_seen DateTime @default(now())
+  last_seen  DateTime @updatedAt
+
+  @@index([reason])
+  @@index([last_seen])
+}
+
+enum SuppressionReason {
+  BOUNCE
+  COMPLAINT
+  UNSUBSCRIBE
+  NEGATIVE_REPLY
+  MANUAL
+}

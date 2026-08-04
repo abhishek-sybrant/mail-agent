@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { partitionSuppressed } from "@/lib/suppression";
 import { readJson } from "@/lib/webhook";
 
 /**
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
       : {}),
   };
 
-  const [count, leads] = await Promise.all([
+  const [count, found] = await Promise.all([
     prisma.lead.count({ where }),
     prisma.lead.findMany({
       where,
@@ -67,9 +68,25 @@ export async function POST(request: Request) {
     }),
   ]);
 
+  /**
+   * Also filter against the suppression list, not just Lead.suppressed.
+   *
+   * That flag resets whenever a spreadsheet is re-imported, so a known-dead
+   * address reappears here looking perfectly selectable. It would be dropped
+   * later at enrolment, but offering it at all is misleading — the count would
+   * say 500 and only 480 would send, with no explanation.
+   */
+  const { blocked } = excludeSuppressed
+    ? await partitionSuppressed(found.map((l) => l.email))
+    : { blocked: [] as { email: string }[] };
+  const barred = new Set(blocked.map((b) => b.email));
+  const leads = found.filter((l) => !barred.has(l.email.trim().toLowerCase()));
+
   return NextResponse.json({
     ok: true,
-    count,
+    // Report what is actually selectable, minus anything barred on this page.
+    count: Math.max(0, count - barred.size),
+    suppressed_excluded: barred.size,
     capped: count > limit,
     lead_ids: leads.map((l) => l.id),
     // The picker renders these so a human can deselect individuals rather

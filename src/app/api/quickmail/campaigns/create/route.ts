@@ -15,6 +15,7 @@ import {
 } from "@/lib/quickmail/mutations";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 import { syncMailboxes } from "@/lib/quickmail/sync";
+import { normalise, partitionSuppressed } from "@/lib/suppression";
 import { TIMEZONES } from "@/lib/agent/campaign-spec";
 import {
   prepareEmailBody,
@@ -188,13 +189,26 @@ export async function POST(request: Request) {
   const allHours = sched.all_hours === true;
 
   // Never enrol a suppressed, bounced or opted-out lead, whatever was selected.
-  const leads = await prisma.lead.findMany({
+  const candidates = await prisma.lead.findMany({
     where: {
       id: { in: leadIds },
       suppressed: false,
       status: { in: ["UNCONTACTED", "EMAILED"] },
     },
   });
+
+  /**
+   * Second gate: the suppression list, keyed on the address.
+   *
+   * The Lead flags above are not enough on their own. A re-imported
+   * spreadsheet creates a fresh Lead with `suppressed` false and status
+   * UNCONTACTED, so a known-dead address sails through — which is how the same
+   * addresses came to bounce roughly 41 times each. This check survives that
+   * because it never looks at the Lead row.
+   */
+  const { blocked } = await partitionSuppressed(candidates.map((l) => l.email));
+  const barred = new Set(blocked.map((b) => b.email));
+  const leads = candidates.filter((l) => !barred.has(normalise(l.email)));
   const skipped = leadIds.length - leads.length;
 
   const qmLeads: QmLeadInput[] = leads.map((l) => ({

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { suppress } from "@/lib/suppression";
 import {
   badRequest,
   normalizeEmail,
-  notFound,
   optionalString,
   readJson,
   verifySecret,
@@ -29,8 +29,30 @@ export async function POST(request: Request) {
   const reason = optionalString(parsed.data.reason);
   const campaignId = optionalString(parsed.data.campaign_id);
 
+  /**
+   * Bar the address first, before anything can fail.
+   *
+   * Deliberately ahead of the lead lookup: a bounce for an address we have no
+   * local Lead for is still a bounce, and used to be answered with a 404 and
+   * thrown away. Those are precisely the addresses that come back in the next
+   * spreadsheet import.
+   */
+  const barred = await suppress({
+    email,
+    reason: "BOUNCE",
+    source: "webhook",
+    note: reason ?? "Hard bounce reported by QuickMail",
+  });
+
   const lead = await prisma.lead.findUnique({ where: { email } });
-  if (!lead) return notFound(`No lead found for ${email}`);
+  if (!lead) {
+    // Recorded, even though there is nothing local to update.
+    return NextResponse.json({
+      ok: true,
+      suppressed: barred,
+      note: `No local lead for ${email}; the address is barred from future sends.`,
+    });
+  }
 
   const campaign = campaignId
     ? await prisma.campaign.findUnique({ where: { id: campaignId } })
@@ -54,5 +76,6 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     lead: { id: updated.id, email: updated.email, status: updated.status },
+    suppressed: barred,
   });
 }

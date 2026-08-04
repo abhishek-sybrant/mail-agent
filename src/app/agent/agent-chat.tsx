@@ -44,6 +44,36 @@ import {
 } from "@/lib/agent/campaign-spec";
 import { fmtDateTime, fmtNumber } from "@/lib/format";
 
+/**
+ * Parses a response without assuming it contains JSON.
+ *
+ * `res.json()` on an empty body throws "Unexpected end of JSON input", which
+ * says nothing about what went wrong. A route that crashes before responding —
+ * a stale Prisma client after a migration is the usual cause in dev — returns
+ * exactly that. Reading the text first means the real status and any HTML error
+ * page reach the user instead.
+ */
+// `any` deliberately: this stands in for res.json(), which is also `any`, and
+// narrowing it here would just push casts onto every call site.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readJsonSafe(res: Response): Promise<any> {
+  const raw = await res.text();
+  if (raw.trim() === "") {
+    throw new Error(
+      `The server returned an empty ${res.status} response. If a migration just ` +
+        `ran, restart the dev server — its Prisma client is stale.`,
+    );
+  }
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    const title = raw.match(/<title>([^<]+)<\/title>/)?.[1];
+    throw new Error(
+      `The server returned ${res.status} but not JSON${title ? `: ${title.trim()}` : ""}`,
+    );
+  }
+}
+
 type Msg =
   | { role: "user"; text: string }
   | { role: "agent"; text: string; questions?: AgentQuestion[] };
@@ -160,7 +190,7 @@ export function AgentChat({
     setShowHistory(true);
     try {
       const res = await fetch("/api/agent/conversations");
-      const json = await res.json();
+      const json = await readJsonSafe(res);
       setHistory(json.conversations ?? []);
     } catch {
       toast.error("Could not load history");
@@ -208,7 +238,7 @@ export function AgentChat({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: text, spec: mergedSpec }),
       });
-      const json = await res.json();
+      const json = await readJsonSafe(res);
       if (!res.ok) throw new Error(json.error ?? "Agent failed");
 
       setSpec(json.spec);
@@ -337,7 +367,7 @@ export function AgentChat({
             })),
         }),
       });
-      const json = await res.json();
+      const json = await readJsonSafe(res);
       if (!res.ok) throw new Error(json.error ?? "Failed");
 
       setResult(json);
@@ -1267,7 +1297,7 @@ function CopyEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: brief, reject }),
       });
-      const json = await res.json();
+      const json = await readJsonSafe(res);
       if (!res.ok) throw new Error(json.error ?? "Generation failed");
 
       const t = json.template as {

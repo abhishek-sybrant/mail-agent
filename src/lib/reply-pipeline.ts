@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+// Aliased: a local `suppress` boolean already exists in this file.
+import { suppress as addSuppression } from "@/lib/suppression";
 import { classifyReply } from "@/lib/ai/classify";
 import { draftReply } from "@/lib/ai/generate";
 import { notifyApprovalNeeded } from "@/lib/notify";
@@ -62,6 +64,19 @@ export async function handleInboundReply(input: {
     verdict.sentiment === "NEGATIVE" ||
     verdict.sentiment === "UNSUBSCRIBE"
   ) {
+    /**
+     * Bar the address permanently, not just this Lead row.
+     *
+     * The flag set above dies with the row: re-import the same spreadsheet and
+     * the person who told us to stop is contacted again. Someone who asked to
+     * be left alone is the worst possible address to resurrect.
+     */
+    await addSuppression({
+      email: lead.email,
+      reason: verdict.sentiment === "UNSUBSCRIBE" ? "UNSUBSCRIBE" : "NEGATIVE_REPLY",
+      source: "reply",
+      note: verdict.reasoning?.slice(0, 200) ?? null,
+    });
     return { verdict, log, action: "suppressed" as const };
   }
 

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { prisma } from "@/lib/prisma";
 import { cachedCampaigns, relativeTime } from "@/lib/quickmail/cached";
+import { suppressionSummary } from "@/lib/suppression";
 import { isConfigured } from "@/lib/quickmail/client";
 import {
   aggregate,
@@ -53,6 +54,8 @@ export default async function DashboardPage() {
 
   // Read the local mirror, never the API — see lib/quickmail/cached.ts.
   const { campaigns, syncedAt } = await cachedCampaigns();
+  // Cheap counts; safe in the render path unlike a QuickMail call.
+  const suppression = await suppressionSummary();
   if (campaigns.length === 0) return <NeedsSync />;
 
   const statusCounts = await prisma.lead.groupBy({
@@ -141,6 +144,44 @@ export default async function DashboardPage() {
                   above 5%.
                 </p>
               )}
+
+              {/*
+                The suppression list is the remedy for the panel above, so it
+                belongs next to the problem rather than on its own page. The
+                repeat count is the important number: it means an address we
+                already knew was dead was enrolled again.
+              */}
+              <div className="border-t border-red-200 pt-2 text-xs text-red-700/90 dark:border-red-900 dark:text-red-300/90">
+                <span className="font-medium">
+                  {/* One expression: a line break between "address" and "es"
+                      renders as "address es". */}
+                  {`Suppression list: ${fmtNumber(suppression.total)} ${
+                    suppression.total === 1 ? "address" : "addresses"
+                  } barred`}
+                </span>
+                {suppression.total > 0 && (
+                  <>
+                    {" · "}
+                    {suppression.byReason
+                      .map((r) => `${fmtNumber(r.count)} ${r.reason.toLowerCase()}`)
+                      .join(", ")}
+                  </>
+                )}
+                {suppression.repeatOffenders > 0 && (
+                  <span className="font-semibold">
+                    {" · "}
+                    {fmtNumber(suppression.repeatOffenders)} re-enrolled after
+                    being barred
+                  </span>
+                )}
+                {suppression.total === 0 && (
+                  <span>
+                    {" — "}QuickMail&apos;s API cannot export past bounces, so load
+                    them once with{" "}
+                    <code className="font-mono">npm run suppressions -- bounces.csv</code>
+                  </span>
+                )}
+              </div>
             </CardContent>
           </Card>
         )}
