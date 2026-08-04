@@ -299,9 +299,20 @@ export async function complete(o: CompleteOptions): Promise<string> {
     });
   } catch (error) {
     if (error instanceof AiUnavailable) throw error;
-    throw new AiUnavailable(
-      `${provider} failed: ${(error as Error).message ?? "unknown"}`,
-    );
+
+    /**
+     * "fetch failed" is what a refused connection surfaces as, which tells the
+     * user nothing. For a local provider it almost always means the server is
+     * not running, so say that instead of the transport error.
+     */
+    const message = (error as Error).message ?? "unknown";
+    if (provider === "ollama" && /fetch failed|ECONNREFUSED/i.test(message)) {
+      throw new AiUnavailable(
+        `Ollama is not reachable at ${ollamaUrl()} — start it with "ollama serve", ` +
+          `or set AI_PROVIDER_GENERATE=gemini in .env to use a hosted model.`,
+      );
+    }
+    throw new AiUnavailable(`${provider} failed: ${message}`);
   }
 }
 

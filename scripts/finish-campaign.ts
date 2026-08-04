@@ -175,7 +175,16 @@ async function main() {
   }
 
   console.log(`finishing ${campaignUrl} (leads/day ${leadsPerDay})`);
-  const r = await finishCampaignInUi({ campaignUrl: campaignUrl!, leadsPerDay, headed, attach });
+  const daysArg = args.find((a) => a.startsWith("--days="))?.split("=")[1];
+  const timeArg = args.find((a) => a.startsWith("--time="))?.split("=")[1];
+  const r = await finishCampaignInUi({
+    campaignUrl: campaignUrl!,
+    leadsPerDay,
+    days: daysArg ? daysArg.split(",").map((d) => d.trim().toLowerCase()) : undefined,
+    time: timeArg,
+    headed,
+    attach,
+  });
   for (const line of r.log) console.log(`  ${line}`);
   if (r.error) console.error(`  error: ${r.error}`);
   console.log(`  trigger set: ${r.triggerSet} | unpaused: ${r.unpaused}`);

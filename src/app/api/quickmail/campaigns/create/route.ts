@@ -14,6 +14,7 @@ import {
   type QmLeadInput,
 } from "@/lib/quickmail/mutations";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
+import { syncMailboxes } from "@/lib/quickmail/sync";
 import { TIMEZONES } from "@/lib/agent/campaign-spec";
 import {
   prepareEmailBody,
@@ -295,7 +296,14 @@ export async function POST(request: Request) {
      * A deauthorized mailbox attaches without complaint and then sends nothing
      * at all — leads sit at "active" indefinitely with no error on the campaign,
      * the mailbox or the step. Refuse it here; that failure is invisible later.
+     *
+     * Checked live rather than from the local cache. Authorization is revoked
+     * without warning — a mailbox that synced as authorized this morning was
+     * dead by the afternoon, so the cached copy let an unusable sender through
+     * and the campaign silently could not go Live. One extra request is worth
+     * more than a campaign that looks fine and never sends.
      */
+    await syncMailboxes().catch(() => undefined);
     const dead = await prisma.qmMailbox.findMany({
       where: { id: { in: mailboxIds }, OR: [{ authorized: false }, { qm_paused: true }] },
     });
@@ -563,11 +571,24 @@ export async function POST(request: Request) {
       ui = await finishCampaignInUi({
         campaignUrl: automationUrl.replace(/\/automation$/, ""),
         leadsPerDay: perDay ?? 1,
+        // Match the trigger to the schedule the agent collected, rather than
+        // letting QuickMail default to Monday-only at the current clock time.
+        days: chosenDays.length > 0 ? chosenDays : undefined,
+        time: sched.start_at
+          ? String(sched.start_at)
+          : (fromTime ?? undefined),
       });
       if (!ui.ok) {
+        // Name the cause when QuickMail gave one. "See the log" sends the user
+        // hunting for something the tool already knows.
+        const why = ui.blockedBy
+          ? `QuickMail refused: ${ui.blockedBy}`
+          : (ui.error ?? "see ui_automation.log");
         warnings.push(
-          `Automated finish did not complete (${ui.error ?? "see ui_automation.log"}) — ` +
-            `do it by hand, the steps are listed below.`,
+          `Automated finish did not complete — ${why}. ` +
+            (ui.triggerSet
+              ? "The trigger was set; only the switch to Live is outstanding."
+              : "Do both steps by hand, listed below."),
         );
       }
     }
