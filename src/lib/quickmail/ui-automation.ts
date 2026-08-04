@@ -121,6 +121,58 @@ async function firstVisible(page: Page, candidates: string[], timeoutMs = 4000) 
   return null;
 }
 
+/**
+ * Completes QuickMail's sign-in when the attached browser has been signed out.
+ *
+ * QuickMail authenticates through Google OAuth, and the browser profile usually
+ * still holds a valid Google session even after the QuickMail one expires — so
+ * clicking "Continue with Google" round-trips and lands back signed in with no
+ * typing at all. Without this the automation simply reported that it could not
+ * find the trigger button, because it was sitting on a login page.
+ *
+ * If Google does ask for a password or 2FA, this gives up rather than trying to
+ * fill anything: that genuinely needs the human.
+ */
+async function ensureSignedIn(page: Page, log: string[]): Promise<boolean> {
+  const signedOut = () =>
+    page.url().includes("/login") || page.url().includes("accounts.google.com");
+  if (!signedOut()) return true;
+
+  const google = await firstVisible(
+    page,
+    [
+      'a:has-text("Continue with Google"):visible',
+      'button:has-text("Continue with Google"):visible',
+    ],
+    6000,
+  );
+  if (!google) {
+    log.push("signed out of QuickMail and no Google sign-in button found");
+    return false;
+  }
+
+  log.push("signed out — completing Google sign-in");
+  await clickAnyway(google);
+
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(1500);
+    if (!signedOut()) {
+      log.push("signed in");
+      return true;
+    }
+    // A password box means the session really is gone; stop and say so.
+    if (
+      page.url().includes("accounts.google.com") &&
+      (await page.locator('input[type="password"]:visible').count()) > 0
+    ) {
+      log.push("Google is asking for a password — sign in by hand once, then re-run");
+      return false;
+    }
+  }
+  log.push("Google sign-in did not complete");
+  return false;
+}
+
 async function login(page: Page, log: string[]) {
   await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded" });
 
@@ -166,6 +218,7 @@ async function unpause(
   onBlocked: (reason: string) => void,
 ): Promise<boolean> {
   await page.goto(`${campaignUrl}/automation`, { waitUntil: "domcontentloaded" });
+  if (!(await ensureSignedIn(page, log))) return false;
 
   // Same cold-start problem as the trigger: wait for the pill rather than sleep.
   const badge = await firstVisible(
@@ -338,6 +391,8 @@ async function setTrigger(
   log: string[],
 ): Promise<boolean> {
   await page.goto(`${campaignUrl}/automation`, { waitUntil: "domcontentloaded" });
+  // Navigation can bounce to the login page if the session lapsed mid-run.
+  if (!(await ensureSignedIn(page, log))) return false;
 
   /**
    * Wait for the control, do not sleep a fixed amount.
@@ -543,8 +598,20 @@ export async function finishCampaignInUi(opts: {
       if (!ctx) throw new Error("Attached browser has no context");
       // Reuse a QuickMail tab if one is open, so their session and any
       // in-page state carry over; otherwise open a new tab beside their work.
+      /**
+       * Work in the window the user already has open.
+       *
+       * An existing QuickMail tab is reused so nothing new appears on screen.
+       * Failing that, a localhost tab — the one running this app — is a good
+       * second choice: it is the same window the user is looking at, so the
+       * automation happens where they can see it. Only if neither exists does a
+       * new tab get opened, and `newPage` adds a tab to the existing window
+       * rather than spawning a separate one.
+       */
+      const pages = ctx.pages();
       page =
-        ctx.pages().find((p) => p.url().includes("quickmail.com")) ??
+        pages.find((p) => p.url().includes("quickmail.com")) ??
+        pages.find((p) => p.url().includes("localhost:3000")) ??
         (await ctx.newPage());
 
       /**
@@ -576,6 +643,30 @@ export async function finishCampaignInUi(opts: {
     }
 
     page.setDefaultTimeout(15_000);
+
+    /**
+     * Land on QuickMail and sign in if needed, before looking for controls.
+     *
+     * Skipping this produced a misleading failure: the automation reported "no
+     * '+ Trigger' button found" when it was in fact sitting on the login page.
+     */
+    if (attach) {
+      if (!page.url().includes("quickmail.com")) {
+        await page
+          .goto(`${opts.campaignUrl}/automation`, { waitUntil: "domcontentloaded" })
+          .catch(() => undefined);
+        await page.waitForTimeout(2000);
+      }
+      if (!(await ensureSignedIn(page, log))) {
+        return {
+          ok: false,
+          unpaused: false,
+          triggerSet: false,
+          log,
+          error: "Not signed in to QuickMail in the attached browser",
+        };
+      }
+    }
 
     const triggerSet = await setTrigger(
       page,

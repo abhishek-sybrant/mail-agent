@@ -133,11 +133,37 @@ export async function fetchCampaign(id: string): Promise<QmCampaign | null> {
   return data.campaign;
 }
 
+/**
+ * Every sending mailbox, paginated.
+ *
+ * `emailAccounts` is subject to the same undocumented 10-per-page cap as leads
+ * and campaigns: `first: 100` silently returns 10 rather than erroring. That
+ * looked harmless until syncMailboxes() started deleting local rows absent from
+ * the response — with 17 mailboxes on the account it saw 10 and removed 7,
+ * which is why senders disappeared from the picker. Anything that drives a
+ * delete has to walk the cursor.
+ */
 export async function fetchEmailAccounts(): Promise<QmEmailAccount[]> {
-  const data = await query<{ emailAccounts: { nodes: QmEmailAccount[] } }>(
-    `{ emailAccounts(first: 100) { nodes { id email authorized paused } } }`,
-  );
-  return data.emailAccounts.nodes;
+  const out: QmEmailAccount[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 50; page++) {
+    const after: string = cursor ? `, after: "${cursor}"` : "";
+    const data = await query<{
+      emailAccounts: {
+        pageInfo: { hasNextPage: boolean; endCursor: string };
+        nodes: QmEmailAccount[];
+      };
+    }>(`{ emailAccounts(first: 10${after}) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id email authorized paused } } }`);
+
+    out.push(...data.emailAccounts.nodes);
+    if (!data.emailAccounts.pageInfo.hasNextPage) break;
+    cursor = data.emailAccounts.pageInfo.endCursor;
+  }
+
+  return out;
 }
 
 export async function fetchWorkspaces(): Promise<QmWorkspace[]> {

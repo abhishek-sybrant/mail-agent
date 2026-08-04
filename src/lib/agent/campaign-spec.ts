@@ -66,6 +66,15 @@ export type CampaignSpec = {
   startAt: string | null;
   endDate: string | null;
   endAt: string | null;
+  /**
+   * Clock time the QuickMail trigger fires at, HH:MM in the campaign timezone.
+   *
+   * This is what actually starts leads sending. It replaced the old campaign
+   * start/end dates, which QuickMail has no field for — those were enforced
+   * locally by pausing steps, which meant the dates implied control the app did
+   * not really have. The trigger is the real lever, so it is what we collect.
+   */
+  triggerAt: string;
   /** Job-title keywords used to pre-filter leads. */
   titleKeywords: string[];
   /**
@@ -98,6 +107,8 @@ export const DEFAULT_SPEC: CampaignSpec = {
   startAt: "09:00",
   endDate: null,
   endAt: "17:00",
+  // Defaults to the start of the sending window; the UI keeps them in step.
+  triggerAt: "09:00",
   launchMode: "live",
   titleKeywords: [],
 };

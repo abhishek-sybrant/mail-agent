@@ -323,6 +323,8 @@ export function AgentChat({
             end_at: spec.endAt,
           },
           launch_mode: spec.launchMode ?? "ready",
+          // Drives the QuickMail trigger the UI automation creates.
+          trigger_at: spec.triggerAt ?? spec.fromTime ?? "09:00",
           // Not settable through the API — passed so the response can tell the
           // user the exact number to enter as the QuickMail trigger.
           leads_per_day: spec.leadsPerDay ?? null,
@@ -1530,12 +1532,16 @@ function CopyEditor({
 }
 
 /**
- * Campaign start and end dates.
+ * When the QuickMail trigger fires.
  *
- * QuickMail's API has no field for these — every input type in the schema was
- * searched and only TimeRangeInput.startTime/endTime exists, which is a daily
- * clock window. So these are recorded on the brief and flagged as a manual
- * step rather than being silently dropped.
+ * This replaced campaign start/end dates. QuickMail has no field for those —
+ * every input type in the schema was searched — so they were enforced locally
+ * by pausing steps, which made the dates imply control this app did not have.
+ * They also only ever narrowed the daily window, and an end time before the
+ * window opened produced a campaign that could never send at all.
+ *
+ * The trigger is the real lever: it admits leads into the sequence, so its
+ * time is the thing worth collecting.
  */
 function DateFields({
   spec,
@@ -1544,147 +1550,49 @@ function DateFields({
   spec: Partial<CampaignSpec>;
   setSpec: (s: Partial<CampaignSpec>) => void;
 }) {
+  const from = spec.fromTime ?? "09:00";
+  const to = spec.toTime ?? "17:00";
+  const trigger = spec.triggerAt ?? from;
+  // A trigger outside the sending window never fires.
+  const outsideWindow =
+    spec.allHours !== true && (trigger < from || trigger > to);
+
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium">Campaign dates</p>
+      <p className="text-sm font-medium">Trigger time</p>
       <p className="text-muted-foreground text-xs">
-        When sending is <em>allowed</em>. The campaign still only begins once a
-        trigger is set in QuickMail — see the note below.
+        The clock time each day when QuickMail starts new leads, in the campaign
+        timezone. This is what actually begins the campaign.
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label className="text-xs">Allow sending from</Label>
-          <div className="flex gap-2">
-            <Input
-              type="date"
-              className="h-8 min-w-0 flex-1 text-xs"
-              value={spec.startDate ?? ""}
-              onChange={(e) =>
-                setSpec({ ...spec, startDate: e.target.value || null })
-              }
-            />
-            <Input
-              type="time"
-              className="h-8 w-28 shrink-0 text-xs"
-              value={spec.startAt ?? "09:00"}
-              onChange={(e) =>
-                setSpec({ ...spec, startAt: e.target.value || null })
-              }
-            />
-          </div>
-        </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-xs">Stop sending at</Label>
-          <div className="flex gap-2">
-            <Input
-              type="date"
-              className="h-8 min-w-0 flex-1 text-xs"
-              value={spec.endDate ?? ""}
-              onChange={(e) =>
-                setSpec({ ...spec, endDate: e.target.value || null })
-              }
-            />
-            <Input
-              type="time"
-              className="h-8 w-28 shrink-0 text-xs"
-              value={spec.endAt ?? "17:00"}
-              onChange={(e) => setSpec({ ...spec, endAt: e.target.value || null })}
-            />
-          </div>
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          type="time"
+          className="h-8 w-32 text-xs"
+          value={trigger}
+          onChange={(e) => setSpec({ ...spec, triggerAt: e.target.value })}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() => setSpec({ ...spec, triggerAt: from })}
+        >
+          Match window start ({from})
+        </Button>
       </div>
 
-      {(spec.startDate || spec.endDate) && (
-        <ScheduleNote spec={spec} />
+      {outsideWindow && (
+        <p className="flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          {trigger} is outside the {from}–{to} sending window, so the trigger
+          would never fire. Move it inside the window.
+        </p>
       )}
     </div>
   );
 }
 
-/**
- * Explains what the window will actually do, and flags a bad one.
- *
- * QuickMail has no campaign date field, so this app enforces the window by
- * pausing every email step until the start moment and re-pausing at the end —
- * which `updateEmailStep(paused:)` does support.
- */
-function ScheduleNote({ spec }: { spec: Partial<CampaignSpec> }) {
-  const start = spec.startDate
-    ? new Date(`${spec.startDate}T${spec.startAt ?? "00:00"}`)
-    : null;
-  const end = spec.endDate
-    ? new Date(`${spec.endDate}T${spec.endAt ?? "23:59"}`)
-    : null;
-
-  const invalid = start && end && end <= start;
-  const ms = start && end ? end.getTime() - start.getTime() : 0;
-  const hours = Math.round(ms / 3_600_000);
-  const days = Math.floor(hours / 24);
-
-  const duration = !start || !end
-    ? null
-    : hours < 24
-      ? `${hours} hour${hours === 1 ? "" : "s"}`
-      : `${days} day${days === 1 ? "" : "s"}${hours % 24 ? ` ${hours % 24}h` : ""}`;
-
-  if (invalid) {
-    return (
-      <p className="flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
-        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-        The end is at or before the start — nothing would ever send.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-1 rounded-md border border-emerald-300 bg-emerald-50/50 p-2.5 text-xs dark:border-emerald-900 dark:bg-emerald-950/25">
-      <p className="font-medium text-emerald-800 dark:text-emerald-300">
-        {start && end
-          ? `Sending allowed between ${fmt(start)} and ${fmt(end)} · ${duration}`
-          : start
-            ? `Sending allowed from ${fmt(start)}, until you stop it`
-            : `Stops ${fmt(end!)}`}
-      </p>
-      <p className="text-emerald-800/90 dark:text-emerald-300/90">
-        QuickMail has no campaign-date field, so this app enforces the window
-        itself: every email step stays paused until the start moment, then is
-        released{end ? " and paused again at the end" : ""}. Requires the
-        scheduler to be running — see Settings.
-      </p>
-      {/*
-        Measured, not theoretical: a campaign whose start fired at 05:40:07 did
-        not send until 07:00, when the trigger was added by hand. Saying "starts
-        at X" implies this app governs launch, and it does not.
-      */}
-      <p className="flex items-start gap-1.5 text-emerald-800/90 dark:text-emerald-300/90">
-        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-        <span>
-          This opens the gate, it does not start the campaign. Leads only enter
-          once a <strong>trigger</strong> exists in QuickMail, which its API
-          cannot set. The real first send is whichever comes{" "}
-          <strong>later</strong> — this start time, or the moment you add the
-          trigger.
-        </span>
-      </p>
-    </div>
-  );
-}
-
-/**
- * Campaign window times. Pinned locale for the same reason as `fmtDateTime` —
- * an unpinned one renders differently on server and client. No time zone is
- * forced here: these are wall-clock times the user typed, not instants.
- */
-function fmt(d: Date): string {
-  return d.toLocaleString("en-GB", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
 
 /** Add, reorder-by-delay, edit and remove the steps after the first email. */
 function FollowUpEditor({

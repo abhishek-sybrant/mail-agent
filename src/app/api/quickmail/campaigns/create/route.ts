@@ -574,9 +574,8 @@ export async function POST(request: Request) {
         // Match the trigger to the schedule the agent collected, rather than
         // letting QuickMail default to Monday-only at the current clock time.
         days: chosenDays.length > 0 ? chosenDays : undefined,
-        time: sched.start_at
-          ? String(sched.start_at)
-          : (fromTime ?? undefined),
+        // The explicit trigger time, falling back to the window start.
+        time: optionalString(body.trigger_at) ?? fromTime ?? undefined,
       });
       if (!ui.ok) {
         // Name the cause when QuickMail gave one. "See the log" sends the user

@@ -243,7 +243,15 @@ QuickMail appends the sender's own signature.`,
       answered.sharing ??
       literal.sharing ??
       (ex.sharing === "everyone" || ex.sharing === "only_me" ? ex.sharing : undefined),
-    leadsPerDay: answered.leadsPerDay ?? literal.leadsPerDay ?? ex.leads_per_day,
+    /**
+     * Never the model's guess.
+     *
+     * A daily send volume is a deliverability decision, not something to infer
+     * from a topic — and the model filling it in made the field look answered,
+     * so the agent silently stopped asking. Only a figure the user actually
+     * stated counts; otherwise it stays undefined and the question is asked.
+     */
+    leadsPerDay: answered.leadsPerDay ?? literal.leadsPerDay,
     startImmediately:
       answered.startImmediately ?? literal.startImmediately ?? ex.start_immediately ?? false,
   };

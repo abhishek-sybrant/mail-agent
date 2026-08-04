@@ -215,10 +215,27 @@ export async function syncMailboxes() {
     });
   }
 
-  // Drop mailboxes that no longer exist in QuickMail.
-  await prisma.qmMailbox.deleteMany({
-    where: { id: { notIn: accounts.map((a) => a.id) } },
-  });
+  /**
+   * Drop mailboxes that no longer exist in QuickMail — but only when the fetch
+   * plausibly returned everything.
+   *
+   * A truncated read used to delete the difference: `emailAccounts(first: 100)`
+   * silently caps at 10, so with 17 accounts the sync removed 7 and they
+   * vanished from the sending-mailbox picker. Pagination is fixed, but the
+   * guard stays: a delete driven by a partial response destroys data, while
+   * skipping it merely leaves a stale row until the next run.
+   */
+  const known = await prisma.qmMailbox.count();
+  if (accounts.length === 0 || accounts.length < known * 0.5) {
+    console.warn(
+      `[sync] fetched only ${accounts.length} mailboxes but ${known} are known — ` +
+        `skipping the delete rather than risk removing live accounts`,
+    );
+  } else {
+    await prisma.qmMailbox.deleteMany({
+      where: { id: { notIn: accounts.map((a) => a.id) } },
+    });
+  }
 
   return { total: accounts.length, workspaceId };
 }
