@@ -217,9 +217,19 @@ model Campaign {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  template  Template?      @relation(fields: [template_id], references: [id], onDelete: SetNull)
-  steps     CampaignStep[]
-  emailLogs EmailLog[]
+  /**
+   * The agent chat that produced this campaign, when it came from the AI agent
+   * rather than the manual builder. Lets the campaign list separate the two and
+   * link back to the conversation that specified it.
+   */
+  agent_conversation_id String?
+
+  template          Template?          @relation(fields: [template_id], references: [id], onDelete: SetNull)
+  agentConversation AgentConversation? @relation(fields: [agent_conversation_id], references: [id], onDelete: SetNull)
+  steps             CampaignStep[]
+  emailLogs         EmailLog[]
+
+  @@index([agent_conversation_id])
 }
 
 enum StepType {
@@ -348,6 +358,9 @@ model AgentConversation {
   spec       String
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+
+  /// Campaigns this conversation produced. Usually none or one.
+  campaigns Campaign[]
 
   @@index([updated_at])
 }

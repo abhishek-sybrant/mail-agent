@@ -353,6 +353,9 @@ export function AgentChat({
             end_at: spec.endAt,
           },
           launch_mode: spec.launchMode ?? "ready",
+          // Links the campaign back to this chat, so the list can separate
+          // agent-built campaigns and open the conversation behind them.
+          conversation_id: convoId,
           // Drives the QuickMail trigger the UI automation creates.
           trigger_at: spec.triggerAt ?? spec.fromTime ?? "09:00",
           // Not settable through the API — passed so the response can tell the

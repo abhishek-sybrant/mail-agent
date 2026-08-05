@@ -5,6 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { isConfigured } from "@/lib/quickmail/client";
 import { cachedCampaigns, relativeTime } from "@/lib/quickmail/cached";
 import { CampaignTable } from "@/app/page";
+import { prisma } from "@/lib/prisma";
+import { AgentCampaigns, type AgentBuilt } from "./agent-campaigns";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,39 @@ export default async function CampaignsPage({
 
   const { campaigns, syncedAt } = await cachedCampaigns();
 
+  /**
+   * Locally-created campaigns that came from the AI agent.
+   *
+   * Read from the local table, not the QuickMail mirror: only this side knows
+   * which conversation produced a campaign, and only the local id can be linked
+   * to a detail page.
+   */
+  const agentRows = await prisma.campaign.findMany({
+    where: { agent_conversation_id: { not: null } },
+    orderBy: { created_at: "desc" },
+    take: 25,
+    include: { agentConversation: { select: { id: true, title: true, messages: true } } },
+  });
+
+  const agentBuilt: AgentBuilt[] = agentRows.map((c) => {
+    let messageCount = 0;
+    try {
+      const parsed = JSON.parse(c.agentConversation?.messages ?? "[]") as unknown[];
+      messageCount = Array.isArray(parsed) ? parsed.length : 0;
+    } catch {
+      messageCount = 0;
+    }
+    return {
+      id: c.id,
+      name: c.name,
+      createdAt: c.created_at,
+      quickmailId: c.quickmail_campaign_id,
+      conversationId: c.agentConversation?.id ?? null,
+      messageCount,
+      prompt: c.agentConversation?.title ?? null,
+    };
+  });
+
   const activeCount = campaigns.filter((c) => !c.archived).length;
   const archivedCount = campaigns.length - activeCount;
 
@@ -66,6 +101,8 @@ export default async function CampaignsPage({
         }
       />
       <div className="space-y-4 p-8">
+        <AgentCampaigns built={agentBuilt} qm={campaigns} />
+
         <div className="flex flex-wrap items-center gap-2">
           <Button
             asChild

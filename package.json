@@ -10,6 +10,7 @@
     "scheduler": "tsx scripts/scheduler.ts",
     "finish-campaign": "tsx scripts/finish-campaign.ts",
     "suppressions": "tsx scripts/import-suppressions.ts",
+    "link-agent-campaigns": "tsx scripts/link-agent-campaigns.ts",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "prisma db seed",

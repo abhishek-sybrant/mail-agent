@@ -165,6 +165,9 @@ export async function POST(request: Request) {
     : [];
   const fromTime = typeof sched.from === "string" ? sched.from : null;
   const toTime = typeof sched.to === "string" ? sched.to : null;
+  /** The agent conversation that produced this, when it came from the agent. */
+  const requestedConversationId = optionalString(body.conversation_id);
+
   /**
    * Preheader and cc/bcc. All three are writable on the email step but NOT
    * readable back, so this is the only record of what was set.
@@ -317,6 +320,17 @@ export async function POST(request: Request) {
      * and the campaign silently could not go Live. One extra request is worth
      * more than a campaign that looks fine and never sends.
      */
+    // Resolve the chat link now, so a stale id degrades to null rather than
+    // exploding on a foreign key after the QuickMail campaign already exists.
+    const conversationId = requestedConversationId
+      ? ((
+          await prisma.agentConversation.findUnique({
+            where: { id: requestedConversationId },
+            select: { id: true },
+          })
+        )?.id ?? null)
+      : null;
+
     await syncMailboxes().catch(() => undefined);
     const dead = await prisma.qmMailbox.findMany({
       where: { id: { in: mailboxIds }, OR: [{ authorized: false }, { qm_paused: true }] },
@@ -530,6 +544,15 @@ export async function POST(request: Request) {
         // Steps are created paused, so a scheduled campaign is already in the
         // right physical state — it just waits for the tick to release it.
         schedule_state: scheduledStart ? "PENDING" : null,
+        /**
+         * Which agent chat specified this, if any.
+         *
+         * Checked to exist first. The client sends an id it generated itself,
+         * and a stale one — history cleared, different machine — would fail the
+         * whole create on a foreign key after the campaign already exists in
+         * QuickMail. Losing the link is a far smaller loss than that.
+         */
+        agent_conversation_id: conversationId,
       },
     });
 
