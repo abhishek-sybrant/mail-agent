@@ -41,29 +41,34 @@ export async function handleInboundReply(input: {
     return { verdict, log, action: "ignored" as const };
   }
 
-  const suppress = verdict.should_stop_sequence;
+  /**
+   * An explicit opt-out is honoured immediately; a plain "not interested" waits
+   * for a human.
+   *
+   * These are deliberately treated differently. "Remove me from your list" is a
+   * legal obligation under CAN-SPAM and GDPR and must not sit in a queue until
+   * someone clicks a button, so it suppresses on arrival. "Not interested" is a
+   * judgement call — the classifier gets it wrong on hedged replies like "not
+   * right now, try me next quarter" — so it raises a decision instead of
+   * silently killing a live prospect.
+   */
+  const optedOut = verdict.sentiment === "UNSUBSCRIBE";
+  const rejected = verdict.sentiment === "NEGATIVE";
 
   await prisma.lead.update({
     where: { id: lead.id },
     data: {
-      status:
-        verdict.sentiment === "NEGATIVE" || verdict.sentiment === "UNSUBSCRIBE"
-          ? "DNC"
-          : "REPLIED",
+      // A pending decision is not yet a DNC — only a real opt-out is.
+      status: optedOut ? "DNC" : "REPLIED",
       ai_intent_score: verdict.intent_score,
-      suppressed: suppress,
-      suppressed_reason: suppress
+      suppressed: optedOut,
+      suppressed_reason: optedOut
         ? `${verdict.sentiment}: ${verdict.reasoning}`
         : null,
     },
   });
 
-  // Negative and opt-out: stop, log, and do not ask a human to write back.
-  // Chasing these is what generates spam complaints.
-  if (
-    verdict.sentiment === "NEGATIVE" ||
-    verdict.sentiment === "UNSUBSCRIBE"
-  ) {
+  if (optedOut) {
     /**
      * Bar the address permanently, not just this Lead row.
      *
@@ -73,11 +78,25 @@ export async function handleInboundReply(input: {
      */
     await addSuppression({
       email: lead.email,
-      reason: verdict.sentiment === "UNSUBSCRIBE" ? "UNSUBSCRIBE" : "NEGATIVE_REPLY",
+      reason: "UNSUBSCRIBE",
       source: "reply",
       note: verdict.reasoning?.slice(0, 200) ?? null,
     });
     return { verdict, log, action: "suppressed" as const };
+  }
+
+  if (rejected) {
+    // Queued for a human, who confirms the stop in the Replies tab.
+    await prisma.approval.create({
+      data: {
+        type: "STOP_SEQUENCE",
+        lead_id: lead.id,
+        title: `Stop emailing ${lead.name ?? lead.email}?`,
+        summary: verdict.reasoning?.slice(0, 300) ?? "Replied negatively",
+        payload: JSON.stringify({ incoming: input.replyText }),
+      },
+    });
+    return { verdict, log, action: "needs_decision" as const };
   }
 
   // Anything with real intent goes to a human with a draft ready to edit.

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
@@ -6,11 +7,17 @@ import { ApprovalCard, type ApprovalItem } from "./approval-card";
 export const dynamic = "force-dynamic";
 
 export default async function ApprovalsPage() {
-  const approvals = await prisma.approval.findMany({
-    where: { status: "PENDING" },
-    orderBy: [{ type: "asc" }, { created_at: "desc" }],
-    include: { lead: true },
-  });
+  // STOP_SEQUENCE is deliberately excluded: it is a decision about an inbound
+  // reply, so it is answered next to that reply in /replies. Showing it here as
+  // well would give the same decision two buttons with different consequences.
+  const [approvals, stops] = await Promise.all([
+    prisma.approval.findMany({
+      where: { status: "PENDING", type: { not: "STOP_SEQUENCE" } },
+      orderBy: [{ type: "asc" }, { created_at: "desc" }],
+      include: { lead: true },
+    }),
+    prisma.approval.count({ where: { status: "PENDING", type: "STOP_SEQUENCE" } }),
+  ]);
 
   const items: ApprovalItem[] = approvals.map((a) => {
     let incoming: string | null = null;
@@ -55,8 +62,17 @@ export default async function ApprovalsPage() {
         {items.length === 0 ? (
           <Card>
             <CardContent className="text-muted-foreground py-16 text-center text-sm">
-              Inbox zero. Negative replies are auto-suppressed and never appear
-              here.
+              Inbox zero.
+              {stops > 0 ? (
+                <>
+                  {" "}
+                  {stops} stop request{stops === 1 ? "" : "s"} waiting in{" "}
+                  <Link href="/replies" className="underline">
+                    Replies
+                  </Link>
+                  .
+                </>
+              ) : null}
             </CardContent>
           </Card>
         ) : (

@@ -109,14 +109,21 @@ export async function draftReply(input: {
   sentiment: string;
   bookingLink?: string | null;
   senderName?: string;
+  /** Bumped each time the reviewer asks for a different wording. */
+  variation?: number;
 }): Promise<string> {
   const sender = input.senderName ?? process.env.SENDER_NAME ?? "Alex";
   const prospectFirst = input.name?.trim().split(/\s+/)[0] ?? "there";
 
   if (providerFor("draft") === "off") return fallbackDraft(input, sender);
 
+  const variation = input.variation ?? 0;
+
   const instructions = [
     `The prospect's reply was classified as ${input.sentiment}.`,
+    variation > 0
+      ? "Take a noticeably different angle and opening line from the obvious one."
+      : null,
     input.sentiment === "MEETING_REQUEST" && input.bookingLink
       ? `They want to meet. Include this booking link exactly: ${input.bookingLink}`
       : null,
@@ -133,7 +140,8 @@ export async function draftReply(input: {
       task: "draft",
       system: REPLY_SYSTEM,
       maxTokens: 700,
-      temperature: 0.3,
+      // Climbs on each re-roll so a second ask doesn't return the first draft.
+      temperature: Math.min(0.9, 0.3 + variation * 0.2),
       // "You are" first and last: a 3B model reading a flat list of names
       // reliably signed off as the prospect. Stating the role before the
       // prospect's name, and repeating it after the reply, fixes it.

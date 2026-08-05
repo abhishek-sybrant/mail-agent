@@ -292,6 +292,17 @@ model EmailLog {
   sentiment       Sentiment?
   sentiment_score Int?
 
+  /**
+   * Reply triage. Set once a human has dealt with an inbound reply.
+   *
+   * QuickMail can neither send an email nor read replies back — no such
+   * mutation or query exists — so a reply is always handled outside the API.
+   * This records that it was, so the queue stops showing it.
+   */
+  handled_at     DateTime?
+  /// REPLIED · STOPPED · IGNORED
+  handled_action String?
+
   created_at DateTime @default(now())
 
   lead     Lead      @relation(fields: [lead_id], references: [id], onDelete: Cascade)
@@ -310,6 +321,8 @@ enum ApprovalType {
   REPLY_SEND
   MEETING_BOOK
   LEAD_PUSH
+  /// A negative reply waiting on a human before the address is barred.
+  STOP_SEQUENCE
 }
 
 enum ApprovalStatus {

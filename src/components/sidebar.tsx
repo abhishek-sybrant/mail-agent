@@ -9,10 +9,10 @@ import {
   Inbox,
   LayoutDashboard,
   LogOut,
+  MailOpen,
   PenSquare,
   RefreshCw,
   Send,
-  Sparkles,
   Upload,
   Webhook,
   Users,
@@ -27,18 +27,22 @@ const NAV = [
   { href: "/leads/import", label: "Import file", icon: Upload },
   { href: "/sync", label: "QuickMail sync", icon: RefreshCw },
   { href: "/templates", label: "Templates", icon: PenSquare },
-  { href: "/approvals", label: "Approvals", icon: CheckSquare, badge: true },
+  { href: "/replies", label: "Replies", icon: MailOpen, badge: "replies" as const },
+  { href: "/approvals", label: "Approvals", icon: CheckSquare, badge: "pending" as const },
   { href: "/inbox", label: "AI Inbox", icon: Inbox },
   { href: "/settings/webhooks", label: "Reply webhook", icon: Webhook },
 ];
 
 export function Sidebar({
   pending = 0,
+  replies = 0,
   userEmail,
 }: {
   pending?: number;
+  replies?: number;
   userEmail?: string | null;
 }) {
+  const counts = { pending, replies };
   const pathname = usePathname();
 
   return (
@@ -53,6 +57,8 @@ export function Sidebar({
 
       <nav className="flex-1 space-y-1 p-3">
         {NAV.map(({ href, label, icon: Icon, badge }) => {
+          const count = badge ? counts[badge] : 0;
+
           // "/leads" must not light up when we're on "/leads/import".
           const active =
             href === "/"
@@ -74,9 +80,9 @@ export function Sidebar({
             >
               <Icon className="size-4" />
               <span className="flex-1">{label}</span>
-              {badge && pending > 0 && (
+              {count > 0 && (
                 <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white tabular-nums">
-                  {pending}
+                  {count}
                 </span>
               )}
             </Link>

@@ -61,7 +61,13 @@ function InboxCard({ item }: { item: InboxItem }) {
       if (!res.ok) throw new Error(json.error ?? "Send failed");
 
       setSent(true);
-      toast.success(`Reply sent to ${item.email}`);
+      if (json.sent) {
+        toast.success(`Reply sent to ${item.email}`);
+      } else {
+        toast.warning(
+          "Draft saved but not sent — no send webhook is configured. Use the Replies tab to send it from your mailbox.",
+        );
+      }
       startTransition(() => router.refresh());
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Send failed");

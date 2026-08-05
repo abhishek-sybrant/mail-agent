@@ -23,9 +23,15 @@ export default async function RootLayout({
   const session = await auth();
 
   // Signed-out users only ever see /login, which renders without the shell.
-  const pending = session?.user
-    ? await prisma.approval.count({ where: { status: "PENDING" } })
-    : 0;
+  const [pending, replies] = session?.user
+    ? await Promise.all([
+        // STOP_SEQUENCE lives in /replies, so it must not inflate this badge.
+        prisma.approval.count({
+          where: { status: "PENDING", type: { not: "STOP_SEQUENCE" } },
+        }),
+        prisma.emailLog.count({ where: { type: "REPLIED", handled_at: null } }),
+      ])
+    : [0, 0];
 
   return (
     <html
@@ -34,7 +40,11 @@ export default async function RootLayout({
     >
       <body className="flex min-h-full">
         {session?.user && (
-          <Sidebar pending={pending} userEmail={session.user.email} />
+          <Sidebar
+            pending={pending}
+            replies={replies}
+            userEmail={session.user.email}
+          />
         )}
         <main className="min-w-0 flex-1">{children}</main>
         <Toaster richColors position="top-right" />
