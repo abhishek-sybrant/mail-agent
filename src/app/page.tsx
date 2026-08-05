@@ -109,25 +109,32 @@ export default async function DashboardPage() {
       />
 
       <div className="space-y-6 p-8">
+        {/*
+          A normal card with a status accent, not a red surface.
+          Status colour belongs on the icon and the numbers — flooding the card
+          made a standing metric read as a live error, and something
+          permanently alarming stops being read at all.
+        */}
         {atRisk.length > 0 && (
-          <Card className="border-red-300 bg-red-50/60 dark:border-red-900 dark:bg-red-950/30">
+          <Card className="border-l-4 border-l-red-600 dark:border-l-red-500">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base text-red-700 dark:text-red-400">
-                <TriangleAlert className="size-4" />
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TriangleAlert className="size-4 text-red-600 dark:text-red-500" />
                 Deliverability at risk
+                <Badge variant="secondary" className="ml-1 tabular-nums">
+                  {atRisk.length}
+                </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p className="text-sm text-red-700/90 dark:text-red-300/90">
-                {atRisk.length} campaign{atRisk.length === 1 ? "" : "s"} above a
-                5% bounce rate. Mailbox providers throttle or block sending
-                domains at this level — pause and clean these lists before
-                sending more.
+              <p className="text-muted-foreground text-sm">
+                Above 5% bounce, providers start throttling the sending domain.
+                Pause and clean these lists first.
               </p>
               {atRiskShown.map(({ c, br }) => (
                 <div
                   key={c.id}
-                  className="flex items-center justify-between gap-4 border-t border-red-200 py-2 text-sm dark:border-red-900"
+                  className="flex items-center justify-between gap-4 border-t py-2 text-sm"
                 >
                   <span className="truncate font-medium">{c.name}</span>
                   <span className="shrink-0 font-semibold tabular-nums text-red-700 dark:text-red-400">
@@ -138,7 +145,7 @@ export default async function DashboardPage() {
               ))}
 
               {atRisk.length > atRiskShown.length && (
-                <p className="border-t border-red-200 pt-2 text-xs font-medium text-red-700/90 dark:border-red-900 dark:text-red-300/90">
+                <p className="text-muted-foreground border-t pt-2 text-xs">
                   Showing the worst {atRiskShown.length}.{" "}
                   {atRisk.length - atRiskShown.length} more campaigns are also
                   above 5%.
@@ -151,7 +158,7 @@ export default async function DashboardPage() {
                 repeat count is the important number: it means an address we
                 already knew was dead was enrolled again.
               */}
-              <div className="border-t border-red-200 pt-2 text-xs text-red-700/90 dark:border-red-900 dark:text-red-300/90">
+              <div className="text-muted-foreground border-t pt-2 text-xs">
                 <span className="font-medium">
                   {/* One expression: a line break between "address" and "es"
                       renders as "address es". */}

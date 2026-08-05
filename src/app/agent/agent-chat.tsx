@@ -1554,9 +1554,7 @@ function CopyEditor({
         </div>
       </div>
       <p className="text-muted-foreground text-xs">
-        Cc and Bcc are applied to the first email and all follow-ups. Every
-        recipient sees the same Cc list on every send — for a colleague who only
-        needs visibility, Bcc is usually the right choice.
+        Applied to every email in the sequence. Cc is visible to recipients.
       </p>
 
       <FollowUpEditor spec={spec} setSpec={setSpec} />
@@ -1594,8 +1592,7 @@ function DateFields({
     <div className="space-y-2">
       <p className="text-sm font-medium">Trigger time</p>
       <p className="text-muted-foreground text-xs">
-        The clock time each day when QuickMail starts new leads, in the campaign
-        timezone. This is what actually begins the campaign.
+        When QuickMail starts new leads each day, in the campaign timezone.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">

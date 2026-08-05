@@ -639,11 +639,9 @@ export async function POST(request: Request) {
         what: ui?.ok
           ? "Trigger set and campaign unpaused automatically — verify below"
           : "Finish this campaign in QuickMail — it will not send otherwise",
-        why:
-          "A trigger is what starts leads into the sequence, and QuickMail's v2 " +
-          "API cannot set one (no mutation or input field in the schema expresses " +
-          "it). Without it every lead sits at 'active', nothing sends, and no " +
-          "error is reported anywhere.",
+        // Kept to one line. The long version lived here for weeks and made the
+        // panel read like documentation; the reasoning belongs in the code.
+        why: "QuickMail's API cannot set a trigger. Without one, no lead starts and nothing sends.",
         steps: manualSteps,
         where: automationUrl ?? "QuickMail → the campaign → Automation",
       },
