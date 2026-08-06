@@ -14,7 +14,8 @@
  */
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
-import { decodeEntities, htmlToText } from "../src/lib/quickmail/mail-text";
+import { decodeEntities } from "../src/lib/quickmail/mail-text";
+import { refreshThread, storeThread } from "../src/lib/quickmail/inbox-sync";
 import {
   getThread,
   listOpportunities,
@@ -134,46 +135,40 @@ async function main() {
 
       if (!WITH_THREADS) continue;
 
-      const thread = await getThread(s, o.id);
+      const thread = await getThread(s, o.id, 40);
       threadsFetched++;
       if (!thread) continue;
 
-      await prisma.qmConversation.update({
-        where: { id: o.id },
-        data: {
-          status: thread.status,
-          replyable_todo_id: thread.replyableTodoId,
-          ai_summary: thread.aiSummary ?? data.ai_summary,
-        },
-      });
-
-      for (const m of thread.messages) {
-        const row = {
-          // QuickMail labels its own sends "sent"; anything else came inbound.
-          direction: m.author === "sent" || m.type === "sent" ? "OUT" : "IN",
-          subject: decodeEntities(m.subject),
-          body_html: m.body,
-          body_text: htmlToText(m.content || m.body),
-          from_name: decodeEntities(m.fromName),
-          from_email: m.fromEmail ?? m.from,
-          to_email: m.to,
-          cc: m.cc,
-          sent_at: toDate(m.date ?? m.createdAt),
-        };
-        await prisma.qmMessage.upsert({
-          where: { id: m.todoId },
-          update: row,
-          create: {
-            id: m.todoId,
-            ...row,
-            conversation: { connect: { id: o.id } },
-          },
-        });
-        messages++;
-      }
+      messages += await storeThread(thread, o.prospect?.email ?? null);
 
       if ((i + 1) % 10 === 0) {
         console.log(`  ${i + 1}/${items.length} …`);
+      }
+    }
+
+    /**
+     * Threads that have dropped out of the list.
+     *
+     * Answering a conversation moves it out of "active_and_pending", so it
+     * stops appearing above — and the mirror would freeze at the moment before
+     * the reply. The send route refreshes immediately; this catches anything
+     * answered in QuickMail directly, or a send whose refresh failed.
+     */
+    if (WITH_THREADS) {
+      const seen = new Set(items.map((o) => o.id));
+      const stale = await prisma.qmConversation.findMany({
+        where: { NOT: { handled_at: null }, id: { notIn: [...seen] } },
+        orderBy: { handled_at: "desc" },
+        take: 20,
+        select: { id: true, prospect_email: true },
+      });
+
+      if (stale.length > 0) {
+        console.log(`\nRefreshing ${stale.length} answered thread(s) no longer listed…`);
+        for (const c of stale) {
+          messages += await refreshThread(s, c.id, c.prospect_email);
+          threadsFetched++;
+        }
       }
     }
   });

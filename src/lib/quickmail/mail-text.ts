@@ -41,7 +41,11 @@ export function htmlToText(html: string | null | undefined): string {
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, "\n")
+    // A closing <p> is a paragraph break; a closing <div> is only a line break.
+    // Outlook wraps every single line in its own div, so treating those as
+    // paragraphs double-spaces the entire message.
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/(div|tr|li|h[1-6]|blockquote)>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -62,7 +66,7 @@ export function htmlToText(html: string | null | undefined): string {
  * enough that an unanchored match eats real content.
  */
 const QUOTE_MARKERS: RegExp[] = [
-  /^On .{5,120}\bwrote:\s*$/im,
+  /^On .{5,200}\bwrote:\s*$/im,
   /^-{2,}\s*Original Message\s*-{2,}/im,
   /^_{5,}\s*$/m,
   /^From:\s*.+$/im,

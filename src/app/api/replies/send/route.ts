@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isSuppressed } from "@/lib/suppression";
 import { sendReply, withSession } from "@/lib/quickmail/inbox";
+import { refreshThread } from "@/lib/quickmail/inbox-sync";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
 /**
@@ -90,8 +91,8 @@ export async function POST(request: Request) {
     .join("");
 
   try {
-    const result = await withSession((s) =>
-      sendReply(s, {
+    const result = await withSession(async (s) => {
+      const sent = await sendReply(s, {
         todoId: convo.replyable_todo_id!,
         inboxId: convo.inbox_id!,
         subject,
@@ -99,8 +100,20 @@ export async function POST(request: Request) {
         to,
         cc: optionalString(parsed.data.cc),
         archive: parsed.data.archive === true,
-      }),
-    );
+      });
+
+      /**
+       * Pull the thread back straight away, on the same session.
+       *
+       * Replying moves the opportunity out of QuickMail's active scope, so the
+       * bulk sync stops returning it — without this the reply that was just
+       * sent would never appear in its own thread.
+       */
+      if (sent.sent) {
+        await refreshThread(s, id, convo.prospect_email).catch(() => 0);
+      }
+      return sent;
+    });
 
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 502 });
