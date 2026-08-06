@@ -10,6 +10,7 @@ import {
   CircleSlash,
   Copy,
   Loader2,
+  Mail,
   RefreshCw,
   Send,
   ShieldAlert,
@@ -165,8 +166,26 @@ function ThreadCard({
   liveSending: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+
+  /**
+   * A thread the classifier flagged as wanting out is opened on arrival.
+   *
+   * It is the one case where a person has to decide something rather than
+   * choose to look — leaving it collapsed behind a badge is how an opt-out sits
+   * unanswered.
+   */
+  const flagged =
+    !item.handledAt &&
+    !item.suppressed &&
+    (item.replyType === "NEGATIVE" || item.replyType === "UNSUBSCRIBE");
+
+  const [open, setOpen] = useState(flagged);
   const [draft, setDraft] = useState("");
+  const [draftSource, setDraftSource] = useState<{
+    source: string;
+    reason: string | null;
+  } | null>(null);
+  const [subject, setSubject] = useState<string | null>(null);
   const [variation, setVariation] = useState(0);
   const [drafting, setDrafting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -197,8 +216,14 @@ function ThreadCard({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Draft failed");
       setDraft(json.draft);
+      setSubject(json.subject ?? null);
+      setDraftSource({ source: json.source, reason: json.source_reason });
       setVariation(next);
-      if (json.sentiment) toast.info(`Classified as ${json.sentiment}`);
+      if (json.source === "fallback") {
+        toast.warning(`Template draft — the model didn't run: ${json.source_reason}`);
+      } else if (json.sentiment) {
+        toast.info(`Classified as ${json.sentiment}`);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Draft failed");
     } finally {
@@ -257,6 +282,10 @@ function ThreadCard({
       setConfirm(null);
     }
   }
+
+  const mailto = `mailto:${encodeURIComponent(item.prospect.email)}?subject=${encodeURIComponent(
+    subject ?? latestIn?.subject ?? item.subject ?? "Re:",
+  )}&body=${encodeURIComponent(draft)}`;
 
   async function copy() {
     try {
@@ -395,6 +424,45 @@ function ThreadCard({
               )}
             </div>
 
+            {/*
+              The flagged case gets its question up front, above the draft —
+              answering "do we keep emailing this person" comes before writing
+              anything back to them.
+            */}
+            {flagged && confirm === null && (
+              <div className="rounded-md border border-amber-600/30 bg-amber-600/5 p-4">
+                <p className="text-sm font-medium">
+                  {item.replyType === "UNSUBSCRIBE"
+                    ? `${firstName} asked to be taken off the list`
+                    : `${firstName} does not want to hear from us`}
+                </p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {item.replyType === "UNSUBSCRIBE"
+                    ? "An opt-out. Confirm it today — it is a legal obligation, not a preference."
+                    : "Classified from their reply, which is not always right. Read it above before deciding."}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null}
+                    onClick={() => setConfirm("stop")}
+                  >
+                    <Ban className="size-4" />
+                    Stop emailing this person
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy !== null}
+                    onClick={() => act("ignore")}
+                  >
+                    Keep them in the sequence
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <Separator />
 
             {/* Draft. */}
@@ -419,6 +487,15 @@ function ThreadCard({
                 </Button>
               </div>
 
+              {(subject || latestIn?.subject) && (
+                <p className="text-muted-foreground text-xs">
+                  Subject:{" "}
+                  <span className="text-foreground font-medium">
+                    {subject ?? latestIn?.subject}
+                  </span>
+                </p>
+              )}
+
               <Textarea
                 value={draft}
                 rows={draft ? 12 : 5}
@@ -426,6 +503,19 @@ function ThreadCard({
                 className="text-sm"
                 onChange={(e) => setDraft(e.target.value)}
               />
+
+              {draftSource?.source === "fallback" && (
+                <p className="text-xs text-amber-700">
+                  This is the fallback template, not an AI draft — {draftSource.reason}.
+                </p>
+              )}
+
+              {item.replyType === "MEETING_REQUEST" && !bookingLink && (
+                <p className="text-muted-foreground text-xs">
+                  No BOOKING_LINK is set, so the draft proposes times instead of
+                  linking a calendar.
+                </p>
+              )}
 
               <p className="text-muted-foreground text-xs">
                 Sends from <span className="font-medium">{item.inboxEmail}</span> to{" "}
@@ -552,6 +642,22 @@ function ThreadCard({
                 Review &amp; send
               </Button>
 
+              {/*
+                The escape hatch. Sending through QuickMail is the normal path,
+                but it needs the attached browser — when that is not running, or
+                the reply needs an attachment, this hands the draft to the real
+                mailbox instead. Rendered only with a draft: `disabled` does
+                nothing to an <a>.
+              */}
+              {draft.trim() && (
+                <Button size="sm" variant="outline" asChild>
+                  <a href={mailto}>
+                    <Mail className="size-4" />
+                    Open in mail client
+                  </a>
+                </Button>
+              )}
+
               <Button
                 size="sm"
                 variant="outline"
@@ -562,11 +668,11 @@ function ThreadCard({
                 Copy
               </Button>
 
-              {!item.suppressed && !item.isOoo && (
+              {!item.suppressed && !item.doNotContact && (
                 <Button size="sm" variant="outline" asChild>
                   <a href={calendarUrl} target="_blank" rel="noreferrer">
                     <CalendarPlus className="size-4" />
-                    Schedule
+                    Schedule in Google Calendar
                   </a>
                 </Button>
               )}

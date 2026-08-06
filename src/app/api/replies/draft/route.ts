@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { draftReply } from "@/lib/ai/generate";
+import { draftReply, lastDraftProvenance } from "@/lib/ai/generate";
 import { classifyReply } from "@/lib/ai/classify";
 import { replyText } from "@/lib/quickmail/mail-text";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
@@ -86,12 +86,18 @@ export async function POST(request: Request) {
       });
     }
 
+    const provenance = lastDraftProvenance();
+
     return NextResponse.json({
       draft,
+      subject: latest.subject ?? convo.subject ?? "Re:",
       booking_link: bookingLink,
       sentiment: verdict?.sentiment ?? null,
       intent_score: verdict?.intent_score ?? null,
       reasoning: verdict?.reasoning ?? null,
+      // Says whether a model actually wrote this, or a template did.
+      source: provenance.source,
+      source_reason: provenance.reason ?? null,
     });
   } catch (error) {
     return NextResponse.json(

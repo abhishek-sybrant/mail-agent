@@ -15,6 +15,21 @@ import Anthropic from "@anthropic-ai/sdk";
  */
 
 export type Provider = "anthropic" | "gemini" | "ollama" | "off";
+
+/**
+ * Each task is configured by its own variable, and the names must match exactly:
+ *
+ *   AI_PROVIDER_CLASSIFY   sentiment of an inbound reply
+ *   AI_PROVIDER_DRAFT      writing a reply to a prospect
+ *   AI_PROVIDER_GENERATE   writing campaign copy
+ *   AI_PROVIDER_PLAN       turning a brief into a campaign spec
+ *   AI_PROVIDER_AGENT      the chat agent
+ *
+ * A name that matches no task is not an error — it is simply ignored, and that
+ * task silently falls back to AI_PROVIDER. Reply drafting served a fixed
+ * template for days because AI_PROVIDER_GENERATE was set and AI_PROVIDER_DRAFT
+ * was not, and the draft still looked plausible.
+ */
 export type Task = "classify" | "draft" | "generate" | "plan" | "agent";
 
 const CLAUDE_MODEL = "claude-opus-4-8";
@@ -307,9 +322,17 @@ export async function complete(o: CompleteOptions): Promise<string> {
      */
     const message = (error as Error).message ?? "unknown";
     if (provider === "ollama" && /fetch failed|ECONNREFUSED/i.test(message)) {
+      /**
+       * Name the variable for THIS task, not a fixed one.
+       *
+       * The message used to say AI_PROVIDER_GENERATE whatever the task was, so
+       * setting that and seeing the same error again read as a broken provider.
+       * The real cause was that reply drafting reads AI_PROVIDER_DRAFT and had
+       * quietly been serving a fixed template for days.
+       */
       throw new AiUnavailable(
         `Ollama is not reachable at ${ollamaUrl()} — start it with "ollama serve", ` +
-          `or set AI_PROVIDER_GENERATE=gemini in .env to use a hosted model.`,
+          `or set AI_PROVIDER_${o.task.toUpperCase()}=gemini in .env to use a hosted model.`,
       );
     }
     throw new AiUnavailable(`${provider} failed: ${message}`);

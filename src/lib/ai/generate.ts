@@ -115,7 +115,12 @@ export async function draftReply(input: {
   const sender = input.senderName ?? process.env.SENDER_NAME ?? "Alex";
   const prospectFirst = input.name?.trim().split(/\s+/)[0] ?? "there";
 
-  if (providerFor("draft") === "off") return fallbackDraft(input, sender);
+  lastDraftSource = { source: "ai" };
+
+  if (providerFor("draft") === "off") {
+    lastDraftSource = { source: "fallback", reason: "AI drafting is switched off" };
+    return fallbackDraft(input, sender);
+  }
 
   const variation = input.variation ?? 0;
 
@@ -166,12 +171,31 @@ export async function draftReply(input: {
     });
 
     const cleaned = fixSignature(stripPreamble(text), input.name, sender);
-    return cleaned || fallbackDraft(input, sender);
+    if (cleaned) return cleaned;
+    lastDraftSource = { source: "fallback", reason: "the model returned nothing" };
+    return fallbackDraft(input, sender);
   } catch (error) {
     if (!(error instanceof AiUnavailable)) throw error;
     console.error("[ai] draft unavailable, using fallback", error.message);
+    lastDraftSource = { source: "fallback", reason: error.message };
     return fallbackDraft(input, sender);
   }
+}
+
+/**
+ * Whether the last draft actually came from a model.
+ *
+ * The fallback is a fixed template, and it is indistinguishable from a real
+ * draft once it reaches the screen — a reviewer editing "AI draft" deserves to
+ * know when the model never ran. Module-level rather than a changed return
+ * type because every caller wants the text and only the UI wants the provenance.
+ */
+let lastDraftSource: { source: "ai" | "fallback"; reason?: string } = {
+  source: "ai",
+};
+
+export function lastDraftProvenance() {
+  return lastDraftSource;
 }
 
 /**
