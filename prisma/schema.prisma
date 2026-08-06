@@ -78,9 +78,10 @@ model Lead {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
-  importBatch ImportBatch? @relation(fields: [import_batch_id], references: [id], onDelete: SetNull)
-  emailLogs   EmailLog[]
-  approvals   Approval[]
+  importBatch   ImportBatch?     @relation(fields: [import_batch_id], references: [id], onDelete: SetNull)
+  emailLogs     EmailLog[]
+  approvals     Approval[]
+  conversations QmConversation[]
 
   @@index([status])
   @@index([suppressed])
@@ -409,6 +410,93 @@ model Suppression {
 
   @@index([reason])
   @@index([last_seen])
+}
+
+/// A reply thread mirrored from QuickMail, which calls these "opportunities".
+///
+/// This exists because reply content cannot be reached any other way. The v2
+/// GraphQL API exposes replies only as counts on CampaignStats, and every
+/// reply-shaped v1 REST path 404s — both verified against the live account.
+/// The data here comes from QuickMail's own web app, read through the signed-in
+/// browser session (see src/lib/quickmail/inbox.ts).
+///
+/// Mirrored rather than fetched per render: the source is an undocumented
+/// endpoint behind a browser session, which is far too slow and too fragile to
+/// sit in a page's critical path.
+model QmConversation {
+  /// QuickMail's opportunity id.
+  id      String  @id
+  lead_id String?
+
+  subject    String?
+  state      String?
+  status     String?
+  /// QuickMail's own AI summary of the thread, when it made one.
+  ai_summary String?
+  /// QuickMail's classification of the latest reply.
+  reply_type String?
+  is_ooo     Boolean @default(false)
+
+  waiting_since DateTime?
+
+  /// The message a reply must attach to. Null means QuickMail won't accept one.
+  replyable_todo_id String?
+  /// The sending mailbox — a reply has to go out from the inbox that received it.
+  inbox_id          String?
+  inbox_email       String?
+  /// Display name on the sending mailbox — what a reply must be signed with.
+  inbox_name        String?
+
+  qm_campaign_id String?
+  campaign_name  String?
+
+  prospect_email   String?
+  prospect_name    String?
+  prospect_title   String?
+  prospect_company String?
+  do_not_contact   Boolean @default(false)
+
+  /// Set once a human has dealt with the thread here.
+  handled_at     DateTime?
+  /// REPLIED · STOPPED · IGNORED
+  handled_action String?
+
+  synced_at  DateTime @default(now())
+  created_at DateTime @default(now())
+
+  lead     Lead?       @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+  messages QmMessage[]
+
+  @@index([handled_at])
+  @@index([lead_id])
+}
+
+/// One email in a mirrored thread, in either direction.
+model QmMessage {
+  /// QuickMail's todo id — the unit a reply is threaded onto.
+  id              String @id
+  conversation_id String
+
+  /// IN for a prospect's reply, OUT for something we sent.
+  direction String
+
+  subject   String?
+  /// HTML as delivered. Rendered sandboxed; never trusted as markup.
+  body_html String?
+  /// Plain-text rendering, when QuickMail supplies one.
+  body_text String?
+
+  from_name  String?
+  from_email String?
+  to_email   String?
+  cc         String?
+
+  sent_at    DateTime?
+  created_at DateTime  @default(now())
+
+  conversation QmConversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  @@index([conversation_id, sent_at])
 }
 
 enum SuppressionReason {

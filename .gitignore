@@ -53,6 +53,12 @@ next-env.d.ts
 
 # Playwright selector-inspection artefacts (may contain account screenshots)
 _inspect-*.png
+_*.png
+
+# Captured QuickMail front-end traffic and JS bundles, used to work out how
+# their inbox is fetched. Holds real reply bodies and their copyrighted code —
+# the findings belong in src/lib/quickmail/inbox.ts, the dump does not.
+/.quickmail-capture/
 
 # Throwaway probe scripts used while diagnosing the QuickMail API.
 _*.mjs

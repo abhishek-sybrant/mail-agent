@@ -29,7 +29,9 @@ export default async function RootLayout({
         prisma.approval.count({
           where: { status: "PENDING", type: { not: "STOP_SEQUENCE" } },
         }),
-        prisma.emailLog.count({ where: { type: "REPLIED", handled_at: null } }),
+        // Auto-replies are excluded: they are most of the inbox and none of
+        // them need a person.
+        prisma.qmConversation.count({ where: { handled_at: null, is_ooo: false } }),
       ])
     : [0, 0];
 
