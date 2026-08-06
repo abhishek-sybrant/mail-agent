@@ -42,8 +42,10 @@ function toDate(value: string | null | undefined): Date | null {
  * Ties a QuickMail prospect to a local Lead so suppression, approvals and the
  * stop decision all keep working off one identity.
  *
- * Deliberately does NOT create a Lead for an address already on the suppression
- * list — resurrecting a barred address is the exact bug the list exists to stop.
+ * Never suppresses anything by itself. QuickMail's own do-not-contact flag is
+ * mirrored onto the conversation and blocks the Send button, but flipping the
+ * local suppression flag is a decision a person makes in the Replies tab — a
+ * sync silently barring addresses is exactly what this app must not do.
  */
 async function linkLead(o: OpportunitySummary): Promise<string | null> {
   const email = o.prospect?.email?.trim().toLowerCase();
@@ -61,11 +63,6 @@ async function linkLead(o: OpportunitySummary): Promise<string | null> {
       phone: o.prospect?.phone ?? null,
       source: "QUICKMAIL",
       status: "REPLIED",
-      // QuickMail's own do-not-contact flag is authoritative; honour it on sight.
-      suppressed: o.prospect?.doNotContact ?? false,
-      suppressed_reason: o.prospect?.doNotContact
-        ? "QuickMail do-not-contact"
-        : null,
     },
   });
   return created.id;

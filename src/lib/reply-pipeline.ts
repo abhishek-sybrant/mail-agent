@@ -1,6 +1,4 @@
 import { prisma } from "@/lib/prisma";
-// Aliased: a local `suppress` boolean already exists in this file.
-import { suppress as addSuppression } from "@/lib/suppression";
 import { classifyReply } from "@/lib/ai/classify";
 import { draftReply } from "@/lib/ai/generate";
 import { notifyApprovalNeeded } from "@/lib/notify";
@@ -9,8 +7,9 @@ import { notifyApprovalNeeded } from "@/lib/notify";
  * The core reply-handling rule set.
  *
  * Everything inbound funnels through here so the routing decision lives in one
- * place: negative replies stop the sequence immediately and silently, positive
- * ones stop it too but raise an approval for a human to answer.
+ * place. Nothing outbound and nothing irreversible happens as a result: every
+ * path either ignores the reply or raises an approval for a human to answer.
+ * This function never sends and never suppresses.
  */
 export async function handleInboundReply(input: {
   leadId: string;
@@ -42,15 +41,15 @@ export async function handleInboundReply(input: {
   }
 
   /**
-   * An explicit opt-out is honoured immediately; a plain "not interested" waits
-   * for a human.
+   * Nothing is barred without a person saying so.
    *
-   * These are deliberately treated differently. "Remove me from your list" is a
-   * legal obligation under CAN-SPAM and GDPR and must not sit in a queue until
-   * someone clicks a button, so it suppresses on arrival. "Not interested" is a
-   * judgement call — the classifier gets it wrong on hedged replies like "not
-   * right now, try me next quarter" — so it raises a decision instead of
-   * silently killing a live prospect.
+   * Both an opt-out and a flat "not interested" raise a decision rather than
+   * suppressing on arrival. That is a deliberate instruction, and it cuts both
+   * ways: the classifier misreads hedged replies like "not right now, try me
+   * next quarter", so auto-suppressing kills live prospects — but an unactioned
+   * opt-out is a compliance problem, because CAN-SPAM and GDPR expect an opt-out
+   * to be honoured promptly. The queue must therefore be worked, not just filled.
+   * Opt-outs are labelled so they can be spotted and cleared first.
    */
   const optedOut = verdict.sentiment === "UNSUBSCRIBE";
   const rejected = verdict.sentiment === "NEGATIVE";
@@ -58,44 +57,43 @@ export async function handleInboundReply(input: {
   await prisma.lead.update({
     where: { id: lead.id },
     data: {
-      // A pending decision is not yet a DNC — only a real opt-out is.
-      status: optedOut ? "DNC" : "REPLIED",
+      // A pending decision is not a DNC yet — a human still has to confirm.
+      status: "REPLIED",
       ai_intent_score: verdict.intent_score,
-      suppressed: optedOut,
-      suppressed_reason: optedOut
-        ? `${verdict.sentiment}: ${verdict.reasoning}`
-        : null,
     },
   });
 
-  if (optedOut) {
-    /**
-     * Bar the address permanently, not just this Lead row.
-     *
-     * The flag set above dies with the row: re-import the same spreadsheet and
-     * the person who told us to stop is contacted again. Someone who asked to
-     * be left alone is the worst possible address to resurrect.
-     */
-    await addSuppression({
-      email: lead.email,
-      reason: "UNSUBSCRIBE",
-      source: "reply",
-      note: verdict.reasoning?.slice(0, 200) ?? null,
-    });
-    return { verdict, log, action: "suppressed" as const };
-  }
-
-  if (rejected) {
-    // Queued for a human, who confirms the stop in the Replies tab.
+  if (optedOut || rejected) {
     await prisma.approval.create({
       data: {
         type: "STOP_SEQUENCE",
         lead_id: lead.id,
-        title: `Stop emailing ${lead.name ?? lead.email}?`,
-        summary: verdict.reasoning?.slice(0, 300) ?? "Replied negatively",
-        payload: JSON.stringify({ incoming: input.replyText }),
+        title: optedOut
+          ? `Opt-out — stop emailing ${lead.name ?? lead.email}`
+          : `Stop emailing ${lead.name ?? lead.email}?`,
+        summary: optedOut
+          ? `They asked to be removed. Confirm today. ${verdict.reasoning ?? ""}`.slice(
+              0,
+              300,
+            )
+          : (verdict.reasoning?.slice(0, 300) ?? "Replied negatively"),
+        payload: JSON.stringify({
+          incoming: input.replyText,
+          sentiment: verdict.sentiment,
+          urgent: optedOut,
+        }),
       },
     });
+
+    await notifyApprovalNeeded({
+      title: optedOut
+        ? `Opt-out from ${lead.name ?? lead.email}`
+        : `Negative reply from ${lead.name ?? lead.email}`,
+      summary: verdict.reasoning,
+      leadEmail: lead.email,
+      intent: verdict.intent_score,
+    });
+
     return { verdict, log, action: "needs_decision" as const };
   }
 

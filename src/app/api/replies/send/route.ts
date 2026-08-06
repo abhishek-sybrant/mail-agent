@@ -117,6 +117,33 @@ export async function POST(request: Request) {
           data: { lead_id: convo.lead_id, type: "SENT", content: body },
         });
       }
+
+      /**
+       * Audit record of who approved this send.
+       *
+       * Written already-resolved, because the gate is the confirmation in the
+       * UI, not a queue — the approval happened before the request, so this
+       * records it rather than asking again. Kept so "who emailed this person,
+       * when, and with what" has an answer months later.
+       */
+      await prisma.approval.create({
+        data: {
+          type: "REPLY_SEND",
+          status: "APPROVED",
+          lead_id: convo.lead_id,
+          title: `Replied to ${convo.prospect_name ?? to}`,
+          summary: `Sent from ${convo.inbox_email} · ${subject}`,
+          ai_draft: body,
+          payload: JSON.stringify({
+            conversation_id: id,
+            to,
+            from: convo.inbox_email,
+            subject,
+          }),
+          resolved_by: session.user.id,
+          resolved_at: new Date(),
+        },
+      });
     }
 
     return NextResponse.json({

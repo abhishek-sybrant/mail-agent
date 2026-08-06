@@ -25,10 +25,7 @@ export default async function RootLayout({
   // Signed-out users only ever see /login, which renders without the shell.
   const [pending, replies] = session?.user
     ? await Promise.all([
-        // STOP_SEQUENCE lives in /replies, so it must not inflate this badge.
-        prisma.approval.count({
-          where: { status: "PENDING", type: { not: "STOP_SEQUENCE" } },
-        }),
+        prisma.approval.count({ where: { status: "PENDING" } }),
         // Auto-replies are excluded: they are most of the inbox and none of
         // them need a person.
         prisma.qmConversation.count({ where: { handled_at: null, is_ooo: false } }),

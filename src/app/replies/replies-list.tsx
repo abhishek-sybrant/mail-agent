@@ -12,6 +12,7 @@ import {
   Loader2,
   RefreshCw,
   Send,
+  ShieldAlert,
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -441,44 +442,115 @@ function ThreadCard({
 
             <Separator />
 
-            <div className="flex flex-wrap items-center gap-2">
-              {confirm === "send" ? (
-                <>
+            {/*
+              Both outward-facing actions stop here first.
+
+              Sending emails a real person and suppressing bars an address for
+              good; neither has an undo, so neither happens on one click. The
+              panel restates exactly what is about to happen — a button label
+              alone is too easy to click past.
+            */}
+            {confirm === "send" && (
+              <div className="rounded-md border border-red-600/40 bg-red-600/5 p-4">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <ShieldAlert className="size-4 text-red-700" />
+                  {liveSending
+                    ? "This sends a real email. Approve it?"
+                    : "Dry run — this will not send. Run it anyway?"}
+                </p>
+                <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-muted-foreground">From</dt>
+                  <dd className="font-medium">{item.inboxEmail}</dd>
+                  <dt className="text-muted-foreground">To</dt>
+                  <dd className="font-medium">{item.prospect.email}</dd>
+                  <dt className="text-muted-foreground">Subject</dt>
+                  <dd className="font-medium">
+                    {latestIn?.subject ?? item.subject ?? "Re:"}
+                  </dd>
+                </dl>
+                <div className="bg-background mt-3 max-h-52 overflow-y-auto rounded border p-3 text-sm whitespace-pre-wrap">
+                  {draft}
+                </div>
+                <div className="mt-3 flex gap-2">
                   <Button
                     size="sm"
+                    variant="destructive"
                     disabled={busy !== null}
                     onClick={send}
-                    variant="destructive"
                   >
                     {busy === "send" ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
                       <Send className="size-4" />
                     )}
-                    {liveSending
-                      ? `Yes, email ${firstName} now`
-                      : "Yes, run it (dry run)"}
+                    {liveSending ? `Yes, email ${firstName} now` : "Yes, run it"}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
                     Cancel
                   </Button>
-                </>
-              ) : (
-                <Button
-                  size="sm"
-                  disabled={
-                    !draft.trim() ||
-                    !item.canReply ||
-                    item.suppressed ||
-                    item.doNotContact ||
-                    busy !== null
-                  }
-                  onClick={() => setConfirm("send")}
-                >
-                  <Send className="size-4" />
-                  Send reply
-                </Button>
-              )}
+                </div>
+              </div>
+            )}
+
+            {confirm === "stop" && (
+              <div className="rounded-md border border-red-600/40 bg-red-600/5 p-4">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <ShieldAlert className="size-4 text-red-700" />
+                  Stop emailing {item.prospect.name ?? item.prospect.email}?
+                </p>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  <span className="font-medium">{item.prospect.email}</span> goes on
+                  the suppression list. No campaign can email this address again,
+                  including after a fresh import, and it cannot be undone from this
+                  screen. Every other lead in{" "}
+                  {item.campaignName ? (
+                    <span className="font-medium">{item.campaignName}</span>
+                  ) : (
+                    "the campaign"
+                  )}{" "}
+                  keeps receiving mail.
+                </p>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  QuickMail keeps its own copy of this lead — set do-not-contact
+                  there too if you want their sequences stopped as well.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={busy !== null}
+                    onClick={() => act("stop")}
+                  >
+                    {busy === "stop" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Ban className="size-4" />
+                    )}
+                    Yes, never email {firstName}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                disabled={
+                  !draft.trim() ||
+                  !item.canReply ||
+                  item.suppressed ||
+                  item.doNotContact ||
+                  busy !== null ||
+                  confirm !== null
+                }
+                onClick={() => setConfirm("send")}
+              >
+                <Send className="size-4" />
+                Review &amp; send
+              </Button>
 
               <Button
                 size="sm"
@@ -502,32 +574,17 @@ function ThreadCard({
               <div className="ml-auto flex gap-2">
                 {!item.handledAt && (
                   <>
-                    {!item.suppressed &&
-                      (confirm === "stop" ? (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={busy !== null}
-                          onClick={() => act("stop")}
-                        >
-                          {busy === "stop" ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Ban className="size-4" />
-                          )}
-                          Confirm — never email {firstName}
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy !== null}
-                          onClick={() => setConfirm("stop")}
-                        >
-                          <Ban className="size-4" />
-                          Stop emailing
-                        </Button>
-                      ))}
+                    {!item.suppressed && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy !== null || confirm !== null}
+                        onClick={() => setConfirm("stop")}
+                      >
+                        <Ban className="size-4" />
+                        Stop emailing
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"

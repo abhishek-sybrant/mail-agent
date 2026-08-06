@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarCheck, Check, Loader2, Sparkles, X } from "lucide-react";
+import { Ban, CalendarCheck, Check, Loader2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,9 +47,13 @@ export function ApprovalCard({ item }: { item: ApprovalItem }) {
 
       setDone(decision);
       toast.success(
-        decision === "APPROVED"
-          ? `Reply sent to ${item.lead?.email}`
-          : "Dismissed",
+        decision === "REJECTED"
+          ? item.type === "STOP_SEQUENCE"
+            ? "Kept in the sequence"
+            : "Dismissed"
+          : item.type === "STOP_SEQUENCE"
+            ? `${item.lead?.email} will not be emailed again`
+            : `Reply sent to ${item.lead?.email}`,
       );
       startTransition(() => router.refresh());
     } catch (error) {
@@ -60,6 +64,12 @@ export function ApprovalCard({ item }: { item: ApprovalItem }) {
   }
 
   const isMeeting = item.type === "MEETING_BOOK";
+  /**
+   * A stop decision has no draft and sends nothing — approving it bars the
+   * address. Same card, different question, so the wording and the buttons both
+   * change rather than offering "Approve & Send" for a suppression.
+   */
+  const isStop = item.type === "STOP_SEQUENCE";
 
   return (
     <Card className={done ? "opacity-60" : undefined}>
@@ -102,31 +112,49 @@ export function ApprovalCard({ item }: { item: ApprovalItem }) {
 
         <Separator />
 
-        <div className="space-y-2">
-          <p className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium uppercase">
-            <Sparkles className="size-3.5" />
-            AI draft — edit before approving
+        {isStop ? (
+          <p className="text-muted-foreground text-xs">
+            Stopping adds{" "}
+            <span className="text-foreground font-medium">{item.lead?.email}</span> to
+            the suppression list. No campaign can email this address again, including
+            after a fresh import. Everyone else in the campaign keeps receiving mail.
           </p>
-          <Textarea
-            value={draft}
-            rows={12}
-            disabled={done !== null}
-            className="font-mono text-sm"
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium uppercase">
+              <Sparkles className="size-3.5" />
+              AI draft — edit before approving
+            </p>
+            <Textarea
+              value={draft}
+              rows={12}
+              disabled={done !== null}
+              className="font-mono text-sm"
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Button
+            variant={isStop ? "destructive" : "default"}
             onClick={() => decide("APPROVED")}
-            disabled={busy !== null || done !== null || !draft.trim()}
+            disabled={busy !== null || done !== null || (!isStop && !draft.trim())}
           >
             {busy === "approve" ? (
               <Loader2 className="size-4 animate-spin" />
+            ) : isStop ? (
+              <Ban className="size-4" />
             ) : (
               <Check className="size-4" />
             )}
-            {done === "APPROVED" ? "Sent" : "Approve & Send"}
+            {done === "APPROVED"
+              ? isStop
+                ? "Stopped"
+                : "Sent"
+              : isStop
+                ? "Yes, stop emailing them"
+                : "Approve & Send"}
           </Button>
 
           <Button
@@ -139,7 +167,7 @@ export function ApprovalCard({ item }: { item: ApprovalItem }) {
             ) : (
               <X className="size-4" />
             )}
-            Dismiss
+            {isStop ? "Keep them in the sequence" : "Dismiss"}
           </Button>
         </div>
       </CardContent>

@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { suppress } from "@/lib/suppression";
 import { badRequest, notFound, optionalString, readJson } from "@/lib/webhook";
+
+/** Pulls the classifier's verdict back out of the stored payload. */
+function readSentiment(payload: string | null): string | null {
+  if (!payload) return null;
+  try {
+    return (JSON.parse(payload) as { sentiment?: string }).sentiment ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * POST /api/approvals/[id]
@@ -53,8 +64,49 @@ export async function POST(
     return NextResponse.json({ ok: true, status: "REJECTED" });
   }
 
-  if (!replyText) return badRequest("Nothing to send — draft is empty");
   if (!approval.lead) return badRequest("Approval has no lead attached");
+
+  /**
+   * A stop decision approves a suppression, not a send.
+   *
+   * Without this branch, approving one would fall through to the reply path
+   * below and fail on an empty draft — or worse, email the person who just
+   * asked to be left alone.
+   */
+  if (approval.type === "STOP_SEQUENCE") {
+    const result = await suppress({
+      email: approval.lead.email,
+      reason:
+        readSentiment(approval.payload) === "UNSUBSCRIBE"
+          ? "UNSUBSCRIBE"
+          : "NEGATIVE_REPLY",
+      source: "approval",
+      note: approval.summary?.slice(0, 200) ?? null,
+    });
+
+    await prisma.$transaction([
+      prisma.approval.update({
+        where: { id },
+        data: {
+          status: "APPROVED",
+          resolved_by: session.user.id,
+          resolved_at: new Date(),
+        },
+      }),
+      prisma.lead.update({
+        where: { id: approval.lead.id },
+        data: { status: "DNC" },
+      }),
+    ]);
+
+    return NextResponse.json({
+      ok: true,
+      status: "APPROVED",
+      suppressed: { email: result.email, hits: result.hits },
+    });
+  }
+
+  if (!replyText) return badRequest("Nothing to send — draft is empty");
 
   // Send is mocked until an outbound provider is wired up. The log row and the
   // status change are real either way, so the dashboard stays truthful.

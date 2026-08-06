@@ -7,17 +7,20 @@ import { ApprovalCard, type ApprovalItem } from "./approval-card";
 export const dynamic = "force-dynamic";
 
 export default async function ApprovalsPage() {
-  // STOP_SEQUENCE is deliberately excluded: it is a decision about an inbound
-  // reply, so it is answered next to that reply in /replies. Showing it here as
-  // well would give the same decision two buttons with different consequences.
-  const [approvals, stops] = await Promise.all([
-    prisma.approval.findMany({
-      where: { status: "PENDING", type: { not: "STOP_SEQUENCE" } },
-      orderBy: [{ type: "asc" }, { created_at: "desc" }],
-      include: { lead: true },
-    }),
-    prisma.approval.count({ where: { status: "PENDING", type: "STOP_SEQUENCE" } }),
-  ]);
+  /**
+   * Stop decisions are included.
+   *
+   * They were briefly hidden here on the grounds that they belong next to the
+   * reply — but a decision raised by the webhook has no mirrored thread to sit
+   * beside, so hiding it here meant an opt-out could sit unanswered and unseen.
+   * Nothing is barred without a person, which only works if the person can see
+   * the queue.
+   */
+  const approvals = await prisma.approval.findMany({
+    where: { status: "PENDING" },
+    orderBy: [{ type: "asc" }, { created_at: "desc" }],
+    include: { lead: true },
+  });
 
   const items: ApprovalItem[] = approvals.map((a) => {
     let incoming: string | null = null;
@@ -55,24 +58,18 @@ export default async function ApprovalsPage() {
         description={
           items.length === 0
             ? "Nothing waiting on you."
-            : `${items.length} item${items.length === 1 ? "" : "s"} need your sign-off before anything sends.`
+            : `${items.length} item${items.length === 1 ? "" : "s"} need your sign-off before anything sends or stops.`
         }
       />
       <div className="max-w-4xl space-y-6 p-8">
         {items.length === 0 ? (
           <Card>
             <CardContent className="text-muted-foreground py-16 text-center text-sm">
-              Inbox zero.
-              {stops > 0 ? (
-                <>
-                  {" "}
-                  {stops} stop request{stops === 1 ? "" : "s"} waiting in{" "}
-                  <Link href="/replies" className="underline">
-                    Replies
-                  </Link>
-                  .
-                </>
-              ) : null}
+              Inbox zero. Reply threads from QuickMail are in{" "}
+              <Link href="/replies" className="underline">
+                Replies
+              </Link>
+              .
             </CardContent>
           </Card>
         ) : (

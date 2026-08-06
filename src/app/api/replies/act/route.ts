@@ -73,13 +73,40 @@ export async function POST(request: Request) {
 
   // Clear any pending stop decision for this lead, whichever way it went.
   if (convo.lead_id) {
-    await prisma.approval.updateMany({
+    const cleared = await prisma.approval.updateMany({
       where: { lead_id: convo.lead_id, type: "STOP_SEQUENCE", status: "PENDING" },
       data: {
         status: action === "stop" ? "APPROVED" : "REJECTED",
+        resolved_by: session.user.id,
         resolved_at: new Date(),
       },
     });
+
+    /**
+     * Audit record for a stop that had no queued decision behind it.
+     *
+     * Barring an address is permanent and survives re-imports, so it must be
+     * traceable to a person even when the reviewer chose it themselves rather
+     * than answering a flag the classifier raised.
+     */
+    if (action === "stop" && cleared.count === 0) {
+      await prisma.approval.create({
+        data: {
+          type: "STOP_SEQUENCE",
+          status: "APPROVED",
+          lead_id: convo.lead_id,
+          title: `Stopped emailing ${convo.prospect_name ?? convo.prospect_email}`,
+          summary: `Suppressed from the Replies tab · thread ${convo.id}`,
+          payload: JSON.stringify({
+            conversation_id: convo.id,
+            email: convo.prospect_email,
+            campaign: convo.campaign_name,
+          }),
+          resolved_by: session.user.id,
+          resolved_at: new Date(),
+        },
+      });
+    }
   }
 
   return NextResponse.json({
