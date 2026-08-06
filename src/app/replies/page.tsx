@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/prisma";
 import { replyText } from "@/lib/quickmail/mail-text";
+import { opportunityUrl } from "@/lib/quickmail/inbox";
 import { RepliesList, type ReplyThread } from "./replies-list";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +102,7 @@ export default async function RepliesPage({
     aiSummary: c.ai_summary,
     waitingSince: c.waiting_since?.toISOString() ?? null,
     canReply: Boolean(c.replyable_todo_id && c.inbox_id),
+    qmUrl: opportunityUrl(c.id),
     inboxEmail: c.inbox_email,
     campaignName: c.campaign_name,
     prospect: {

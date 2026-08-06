@@ -41,6 +41,18 @@ export function workspaceId(): string {
   return process.env.QUICKMAIL_WORKSPACE_ID ?? "54552";
 }
 
+/**
+ * Deep link to a reply thread in QuickMail's own UI.
+ *
+ * Derived rather than stored: the pattern was confirmed by clicking a row, and
+ * the workspace is a single configured value, so there is nothing to keep in
+ * sync. If this app ever mirrors more than one workspace, the id has to come
+ * from the conversation instead.
+ */
+export function opportunityUrl(opportunityId: string): string {
+  return `${ORIGIN}/workspace/${workspaceId()}/opportunities/${opportunityId}`;
+}
+
 export class QuickMailSessionError extends Error {
   constructor(
     message: string,

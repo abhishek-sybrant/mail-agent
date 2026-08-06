@@ -9,6 +9,7 @@ import {
   Check,
   CircleSlash,
   Copy,
+  ExternalLink,
   Loader2,
   Mail,
   RefreshCw,
@@ -47,6 +48,8 @@ export type ReplyThread = {
   waitingSince: string | null;
   /** QuickMail will accept a reply on this thread. */
   canReply: boolean;
+  /** The same thread in QuickMail's own UI. */
+  qmUrl: string;
   inboxEmail: string | null;
   campaignName: string | null;
   prospect: {
@@ -446,6 +449,21 @@ function ThreadCard({
   return (
     <Card className={item.handledAt ? "opacity-70" : undefined}>
       <CardContent className="space-y-4 py-5">
+        {/*
+          The QuickMail link sits outside the expand button on purpose — an
+          anchor nested inside a button is invalid, and clicking it would toggle
+          the card as well as follow the link.
+        */}
+        <a
+          href={item.qmUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-muted-foreground hover:text-foreground float-right ml-3 inline-flex items-center gap-1 text-xs hover:underline"
+        >
+          <ExternalLink className="size-3" />
+          QuickMail
+        </a>
+
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -802,6 +820,15 @@ function ThreadCard({
                   </a>
                 </Button>
               )}
+
+              {/* The same thread in QuickMail — for anything this screen can't
+                  do, like attachments or their own labels and snoozing. */}
+              <Button size="sm" variant="outline" asChild>
+                <a href={item.qmUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink className="size-4" />
+                  Open in QuickMail
+                </a>
+              </Button>
 
               <div className="ml-auto flex gap-2">
                 {!item.handledAt && (
