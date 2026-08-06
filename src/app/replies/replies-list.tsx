@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,6 +12,7 @@ import {
   Loader2,
   Mail,
   RefreshCw,
+  Search,
   Send,
   ShieldAlert,
   Sparkles,
@@ -20,6 +21,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtDateTime } from "@/lib/format";
@@ -82,6 +84,14 @@ const TONE: Record<string, { label: string; className: string }> = {
   },
 };
 
+/** The tone buckets, in the order they read: good news first. */
+const TONES = [
+  { key: "", label: "All" },
+  { key: "positive", label: "Positive" },
+  { key: "neutral", label: "Neutral" },
+  { key: "negative", label: "Negative" },
+] as const;
+
 export function RepliesList({
   items,
   bookingLink,
@@ -90,6 +100,9 @@ export function RepliesList({
   handledCount,
   includeOoo,
   includeHandled,
+  query,
+  tone,
+  toneCounts,
   lastSync,
 }: {
   items: ReplyThread[];
@@ -99,25 +112,138 @@ export function RepliesList({
   handledCount: number;
   includeOoo: boolean;
   includeHandled: boolean;
+  query: string;
+  tone: string;
+  toneCounts: { positive: number; neutral: number; negative: number; all: number };
   lastSync: string | null;
 }) {
-  const href = (o: boolean, h: boolean) =>
-    `/replies${o || h ? `?${[o ? "ooo=1" : "", h ? "show=all" : ""].filter(Boolean).join("&")}` : ""}`;
+  const router = useRouter();
+  const [search, setSearch] = useState(query);
+  const [syncing, setSyncing] = useState(false);
+  const [, startTransition] = useTransition();
+
+  /** Every filter lives in the URL, so a filtered view can be shared or reloaded. */
+  const href = (over: Partial<Record<string, string>>) => {
+    const p = new URLSearchParams();
+    const state: Record<string, string> = {
+      ooo: includeOoo ? "1" : "",
+      show: includeHandled ? "all" : "",
+      q: query,
+      tone,
+      ...over,
+    };
+    for (const [k, v] of Object.entries(state)) if (v) p.set(k, v);
+    const qs = p.toString();
+    return `/replies${qs ? `?${qs}` : ""}`;
+  };
+
+  /**
+   * Debounced so typing doesn't fire a query per keystroke, but still in the
+   * URL rather than filtered in the browser — the page holds at most 200
+   * threads and the search has to reach the ones it didn't load.
+   */
+  useEffect(() => {
+    if (search === query) return;
+    const t = setTimeout(() => router.push(href({ q: search })), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  async function sync() {
+    setSyncing(true);
+    const started = Date.now();
+    try {
+      const res = await fetch("/api/replies/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 30 }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Sync failed");
+
+      const secs = Math.round((Date.now() - started) / 1000);
+      /**
+       * "Run again for more" would be a lie — the pull always starts at the
+       * newest, so pressing it twice re-reads the same threads. Anything older
+       * needs a bigger limit, which is the CLI.
+       */
+      toast.success(
+        `Refreshed the newest ${json.conversations} of ${json.total} threads ` +
+          `(${json.messages} messages) in ${secs}s` +
+          (json.partial
+            ? ". For the older ones: npm run sync-replies -- --limit=200"
+            : "."),
+      );
+      startTransition(() => router.refresh());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
-      <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-xs">
-        <span>
-          {lastSync ? `Synced ${fmtDateTime(lastSync)}` : "Never synced"} · run{" "}
-          <code className="bg-muted rounded px-1 py-0.5">npm run sync-replies</code> to
-          refresh
+      {/* Toolbar: refresh, search, then the tone buckets. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={sync} disabled={syncing}>
+          {syncing ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <RefreshCw className="size-4" />
+          )}
+          {syncing ? "Syncing…" : "Sync replies"}
+        </Button>
+
+        <div className="relative min-w-56 flex-1">
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+          <Input
+            value={search}
+            placeholder="Search name, address, company, subject or message…"
+            className="h-9 pl-8"
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        <span className="text-muted-foreground text-xs">
+          {lastSync ? `Synced ${fmtDateTime(lastSync)}` : "Never synced"}
         </span>
-        <span className="ml-auto flex gap-3">
-          <Link href={href(!includeOoo, includeHandled)} className="hover:underline">
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {TONES.map(({ key, label }) => {
+          const count =
+            key === ""
+              ? toneCounts.all
+              : toneCounts[key as "positive" | "neutral" | "negative"];
+          const active = tone === key;
+          return (
+            <Link
+              key={key || "all"}
+              href={href({ tone: key })}
+              className={
+                active
+                  ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
+                  : "hover:bg-accent rounded-full border px-3 py-1 text-xs"
+              }
+            >
+              {label}
+              <span className={active ? "ml-1.5" : "ml-1.5 text-muted-foreground"}>
+                {count}
+              </span>
+            </Link>
+          );
+        })}
+
+        <span className="text-muted-foreground ml-auto flex gap-3 text-xs">
+          <Link href={href({ ooo: includeOoo ? "" : "1" })} className="hover:underline">
             {includeOoo ? "Hide" : "Show"} auto-replies
             {!includeOoo && oooHidden > 0 ? ` (${oooHidden})` : ""}
           </Link>
-          <Link href={href(includeOoo, !includeHandled)} className="hover:underline">
+          <Link
+            href={href({ show: includeHandled ? "" : "all" })}
+            className="hover:underline"
+          >
             {includeHandled ? "Hide" : "Show"} handled
             {!includeHandled && handledCount > 0 ? ` (${handledCount})` : ""}
           </Link>

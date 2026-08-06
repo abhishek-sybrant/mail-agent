@@ -6,26 +6,64 @@ import { RepliesList, type ReplyThread } from "./replies-list";
 export const dynamic = "force-dynamic";
 
 /**
- * The reply queue — real mail, mirrored from QuickMail.
+ * How QuickMail's reply types roll up into the three buckets on screen.
  *
- * Reads the local mirror rather than QuickMail directly. The source is an
- * undocumented endpoint behind a browser session; it is far too slow and too
- * fragile to sit in a page render. `npm run sync-replies` refreshes it.
+ * Unclassified threads are deliberately absent from all three rather than
+ * dumped into "neutral": nothing has judged them, and filing them as neutral
+ * would claim otherwise. They show under "All".
  */
+const TONE_GROUPS: Record<string, string[]> = {
+  positive: ["POSITIVE", "MEETING_REQUEST"],
+  neutral: ["NEUTRAL", "OUT_OF_OFFICE"],
+  negative: ["NEGATIVE", "UNSUBSCRIBE"],
+};
+
 export default async function RepliesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ooo?: string; show?: string }>;
+  searchParams: Promise<{ ooo?: string; show?: string; q?: string; tone?: string }>;
 }) {
   const params = await searchParams;
   const includeOoo = params.ooo === "1";
   const includeHandled = params.show === "all";
+  const q = params.q?.trim() ?? "";
+  const tone = params.tone && TONE_GROUPS[params.tone] ? params.tone : "";
+
+  /**
+   * Search covers who it's from and what it says.
+   *
+   * The message body is included because a name is often the thing you don't
+   * remember — "the one who asked about pricing" is a far more likely search
+   * than an address. SQLite's LIKE is case-insensitive for ASCII, which is what
+   * `mode: "insensitive"` would give and SQLite does not support.
+   */
+  const search = q
+    ? {
+        OR: [
+          { prospect_name: { contains: q } },
+          { prospect_email: { contains: q } },
+          { prospect_company: { contains: q } },
+          { subject: { contains: q } },
+          { campaign_name: { contains: q } },
+          { inbox_email: { contains: q } },
+          { messages: { some: { body_text: { contains: q } } } },
+        ],
+      }
+    : {};
+
+  const base = {
+    ...(includeOoo ? {} : { is_ooo: false }),
+    ...(includeHandled ? {} : { handled_at: null }),
+  };
+
+  const where = {
+    ...base,
+    ...search,
+    ...(tone ? { reply_type: { in: TONE_GROUPS[tone] } } : {}),
+  };
 
   const conversations = await prisma.qmConversation.findMany({
-    where: {
-      ...(includeOoo ? {} : { is_ooo: false }),
-      ...(includeHandled ? {} : { handled_at: null }),
-    },
+    where,
     orderBy: { waiting_since: "desc" },
     take: 200,
     include: {
@@ -34,11 +72,25 @@ export default async function RepliesPage({
     },
   });
 
-  const [totalOoo, totalHandled, lastSync] = await Promise.all([
-    prisma.qmConversation.count({ where: { is_ooo: true, handled_at: null } }),
-    prisma.qmConversation.count({ where: { NOT: { handled_at: null } } }),
-    prisma.qmConversation.aggregate({ _max: { synced_at: true } }),
-  ]);
+  // Counts are computed against the same filters minus the tone, so switching
+  // buckets doesn't make the other counts jump around.
+  const scoped = { ...base, ...search };
+  const [positive, neutral, negative, all, totalOoo, totalHandled, lastSync] =
+    await Promise.all([
+      prisma.qmConversation.count({
+        where: { ...scoped, reply_type: { in: TONE_GROUPS.positive } },
+      }),
+      prisma.qmConversation.count({
+        where: { ...scoped, reply_type: { in: TONE_GROUPS.neutral } },
+      }),
+      prisma.qmConversation.count({
+        where: { ...scoped, reply_type: { in: TONE_GROUPS.negative } },
+      }),
+      prisma.qmConversation.count({ where: scoped }),
+      prisma.qmConversation.count({ where: { is_ooo: true, handled_at: null } }),
+      prisma.qmConversation.count({ where: { NOT: { handled_at: null } } }),
+      prisma.qmConversation.aggregate({ _max: { synced_at: true } }),
+    ]);
 
   const items: ReplyThread[] = conversations.map((c) => ({
     id: c.id,
@@ -65,8 +117,8 @@ export default async function RepliesPage({
       id: m.id,
       direction: m.direction as "IN" | "OUT",
       subject: m.subject,
-      // The quoted history is stripped for reading; the whole thread is
-      // already on screen as separate messages.
+      // Quoted history is stripped for reading; the thread is already on screen
+      // as separate messages.
       text: replyText(m, 8000),
       fromName: m.from_name,
       fromEmail: m.from_email,
@@ -80,8 +132,8 @@ export default async function RepliesPage({
       <PageHeader
         title="Replies"
         description={
-          items.length === 0
-            ? "Nothing waiting. Run `npm run sync-replies` to pull the latest from QuickMail."
+          q
+            ? `${items.length} thread${items.length === 1 ? "" : "s"} matching “${q}”.`
             : `${items.length} thread${items.length === 1 ? "" : "s"} from QuickMail.`
         }
       />
@@ -94,6 +146,9 @@ export default async function RepliesPage({
           handledCount={totalHandled}
           includeOoo={includeOoo}
           includeHandled={includeHandled}
+          query={q}
+          tone={tone}
+          toneCounts={{ positive, neutral, negative, all }}
           lastSync={lastSync._max.synced_at?.toISOString() ?? null}
         />
       </div>
