@@ -2,7 +2,43 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { suppress } from "@/lib/suppression";
+import { stopProspect, withSession, type StopResult } from "@/lib/quickmail/inbox";
 import { badRequest, notFound, optionalString, readJson } from "@/lib/webhook";
+
+/**
+ * Marks an address do-not-contact in QuickMail and cancels its sequence.
+ *
+ * An approval carries a Lead, not a QuickMail prospect, so the prospect id is
+ * looked up through the mirrored conversation. No conversation means the reply
+ * came in by webhook and was never synced — the address is still barred here,
+ * and the response says QuickMail needs doing by hand.
+ */
+async function stopInQuickMail(email: string): Promise<StopResult | null> {
+  const convo = await prisma.qmConversation.findFirst({
+    where: { prospect_email: email, NOT: { qm_prospect_id: null } },
+    select: { qm_prospect_id: true },
+  });
+
+  if (!convo?.qm_prospect_id) {
+    return {
+      dryRun: false,
+      doNotContact: false,
+      cancelled: false,
+      errors: ["No mirrored QuickMail thread for this address — set it there by hand."],
+    };
+  }
+
+  try {
+    return await withSession((s) => stopProspect(s, convo.qm_prospect_id!));
+  } catch (error) {
+    return {
+      dryRun: false,
+      doNotContact: false,
+      cancelled: false,
+      errors: [error instanceof Error ? error.message : "QuickMail unreachable"],
+    };
+  }
+}
 
 /** Pulls the classifier's verdict back out of the stored payload. */
 function readSentiment(payload: string | null): string | null {
@@ -99,10 +135,20 @@ export async function POST(
       }),
     ]);
 
+    /**
+     * Tell QuickMail too, or its own sequences keep sending.
+     *
+     * Same reasoning as the Replies tab: suppressing locally only governs
+     * campaigns this app builds. Best-effort — the address is already barred
+     * here, so a QuickMail failure is reported rather than thrown.
+     */
+    const quickmail = await stopInQuickMail(approval.lead.email);
+
     return NextResponse.json({
       ok: true,
       status: "APPROVED",
       suppressed: { email: result.email, hits: result.hits },
+      quickmail,
     });
   }
 

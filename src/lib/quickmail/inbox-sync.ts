@@ -46,6 +46,25 @@ export async function storeThread(
       status: thread.status,
       replyable_todo_id: thread.replyableTodoId,
       ai_summary: thread.aiSummary,
+      /**
+       * The prospect fields are refreshed here too, not only in the list pass.
+       *
+       * An answered thread drops out of QuickMail's active scope, so the list
+       * never returns it again — and a stop needs the prospect id. Without this
+       * the very threads someone has acted on are the ones missing the id
+       * needed to stop them.
+       */
+      ...(thread.prospect?.id ? { qm_prospect_id: thread.prospect.id } : {}),
+      ...(thread.prospect
+        ? { do_not_contact: thread.prospect.doNotContact ?? false }
+        : {}),
+      ...(thread.inbox
+        ? {
+            inbox_id: thread.inbox.id,
+            inbox_email: thread.inbox.email,
+            inbox_name: decodeEntities(thread.inbox.name),
+          }
+        : {}),
       synced_at: new Date(),
     },
   });

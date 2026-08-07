@@ -396,13 +396,33 @@ function ThreadCard({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed");
 
-      toast.success(
-        action === "stop"
-          ? `${item.prospect.email} will not be emailed again`
-          : action === "replied"
-            ? "Marked as replied"
-            : "Marked as ignored",
-      );
+      if (action !== "stop") {
+        toast.success(action === "replied" ? "Marked as replied" : "Marked as ignored");
+      } else {
+        /**
+         * Report the two halves separately.
+         *
+         * Barring the address here always succeeds; telling QuickMail can fail
+         * on its own. Reporting a flat "stopped" when its sequences are still
+         * running would be the exact failure this whole screen exists to avoid.
+         */
+        const qm = json.quickmail;
+        if (qm?.dryRun) {
+          toast.warning(
+            `Barred locally. Dry run — QuickMail was not told, so its sequences keep running.`,
+          );
+        } else if (qm?.errors?.length) {
+          toast.warning(
+            `Barred locally, but QuickMail refused: ${qm.errors.join("; ")} — set do-not-contact there by hand.`,
+          );
+        } else if (qm?.doNotContact && qm?.cancelled) {
+          toast.success(
+            `${item.prospect.email} barred here, marked do-not-contact in QuickMail, and its sequence cancelled.`,
+          );
+        } else {
+          toast.success(`${item.prospect.email} will not be emailed again`);
+        }
+      }
       startTransition(() => router.refresh());
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed");
@@ -745,8 +765,9 @@ function ThreadCard({
                   keeps receiving mail.
                 </p>
                 <p className="text-muted-foreground mt-2 text-xs">
-                  QuickMail keeps its own copy of this lead — set do-not-contact
-                  there too if you want their sequences stopped as well.
+                  QuickMail is told as well: the prospect is marked do-not-contact
+                  and any sequence already running for them is cancelled, so no
+                  queued follow-up goes out.
                 </p>
                 <div className="mt-3 flex gap-2">
                   <Button

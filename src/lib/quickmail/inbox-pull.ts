@@ -115,6 +115,7 @@ export async function pullReplies(
       inbox_name: decodeEntities(o.inbox?.name),
       qm_campaign_id: o.campaign?.id ?? null,
       campaign_name: o.campaign?.name ?? null,
+      qm_prospect_id: o.prospect?.id ?? null,
       prospect_email: o.prospect?.email ?? null,
       prospect_name: decodeEntities(o.prospect?.name),
       prospect_title: decodeEntities(o.prospect?.title),

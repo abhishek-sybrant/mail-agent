@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { suppress } from "@/lib/suppression";
+import { stopProspect, withSession, type StopResult } from "@/lib/quickmail/inbox";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
 /**
@@ -37,21 +38,19 @@ export async function POST(request: Request) {
   }
 
   let suppressed: { email: string; hits: number } | null = null;
+  let quickmail: StopResult | null = null;
 
   if (action === "stop") {
     const email = convo.lead?.email ?? convo.prospect_email;
     if (!email) return badRequest("This conversation has no address to suppress");
 
     /**
+     * Local first, and unconditionally.
+     *
      * Bars the address rather than only flagging the Lead: the flag resets on
      * the next spreadsheet import, and someone who asked to be left alone is
-     * the worst possible address to resurrect. The campaign keeps running for
-     * everyone else — one rejection is not a reason to halt hundreds of sends.
-     *
-     * Note this stops OUR sending. QuickMail holds its own copy of the lead, so
-     * the campaign there must also be told, which is what the do-not-contact
-     * flag on the prospect is for. That is surfaced in the UI rather than
-     * written silently.
+     * the worst possible address to resurrect. This must not be skipped or
+     * rolled back because QuickMail was unreachable.
      */
     const r = await suppress({
       email,
@@ -60,6 +59,44 @@ export async function POST(request: Request) {
       note: "Stopped by a human from the Replies tab",
     });
     suppressed = { email: r.email, hits: r.hits };
+
+    /**
+     * Then QuickMail, which is where the sending actually happens.
+     *
+     * Suppressing locally only stops campaigns this app builds. QuickMail keeps
+     * its own copy of the prospect and its own running sequences, so without
+     * this the next scheduled follow-up still goes out — the person told us to
+     * stop and got another email anyway.
+     *
+     * Best-effort: a failure is reported, never thrown. The address is already
+     * barred here, and the alternative is a stop that half-applies and reports
+     * failure, leaving nobody sure what state anything is in.
+     */
+    if (convo.qm_prospect_id) {
+      try {
+        quickmail = await withSession((s) => stopProspect(s, convo.qm_prospect_id!));
+        if (quickmail.doNotContact || quickmail.dryRun) {
+          await prisma.qmConversation.update({
+            where: { id },
+            data: { do_not_contact: quickmail.doNotContact },
+          });
+        }
+      } catch (error) {
+        quickmail = {
+          dryRun: false,
+          doNotContact: false,
+          cancelled: false,
+          errors: [error instanceof Error ? error.message : "QuickMail unreachable"],
+        };
+      }
+    } else {
+      quickmail = {
+        dryRun: false,
+        doNotContact: false,
+        cancelled: false,
+        errors: ["No QuickMail prospect id on this thread — re-run the reply sync."],
+      };
+    }
   }
 
   const updated = await prisma.qmConversation.update({
@@ -113,5 +150,6 @@ export async function POST(request: Request) {
     ok: true,
     conversation: { id: updated.id, handled_action: updated.handled_action },
     suppressed,
+    quickmail,
   });
 }

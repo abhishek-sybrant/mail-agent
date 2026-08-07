@@ -495,6 +495,92 @@ export async function getThread(
   };
 }
 
+/** --------------------------------------------------------------- stopping */
+
+/**
+ * Input shapes came from the call sites in QuickMail's bundle, since
+ * introspection is disabled:
+ *   setProspectsAsDoNotContact  {prospectIds, doNotContact}
+ *   cancelProspects             {accountId, prospectIds}
+ */
+const DNC_MUTATION = `
+  mutation setProspectsAsDoNotContact($input: SetProspectsAsDoNotContactInput!) {
+    setProspectsAsDoNotContact(input: $input) { error }
+  }
+`;
+
+const CANCEL_MUTATION = `
+  mutation cancelProspects($input: CancelProspectsInput!) {
+    cancelProspects(input: $input) { error }
+  }
+`;
+
+export type StopResult = {
+  dryRun: boolean;
+  /** Marked do-not-contact, so no future campaign enrols them. */
+  doNotContact: boolean;
+  /** In-flight sequence cancelled, so nothing already queued goes out. */
+  cancelled: boolean;
+  errors: string[];
+};
+
+/**
+ * Stops QuickMail from emailing a prospect.
+ *
+ * Two operations, because they do different things and only doing one leaves a
+ * hole. Do-not-contact prevents future enrolment; it does not necessarily halt
+ * a journey already running, and a queued follow-up going out after someone
+ * asked to stop is the failure that matters. Cancelling the journey handles the
+ * in-flight case.
+ *
+ * Best-effort by design: the caller has already barred the address locally, and
+ * that must not be rolled back because QuickMail was unreachable. Failures come
+ * back in `errors` so the UI can say what still needs doing by hand.
+ */
+export async function stopProspect(
+  s: Session,
+  prospectId: string,
+): Promise<StopResult> {
+  const result: StopResult = {
+    dryRun: false,
+    doNotContact: false,
+    cancelled: false,
+    errors: [],
+  };
+
+  if (process.env.QUICKMAIL_DRY_RUN !== "false") {
+    console.log("[quickmail:dry-run] stopProspect", prospectId);
+    return { ...result, dryRun: true };
+  }
+
+  try {
+    const data = await s.gql<{
+      setProspectsAsDoNotContact: { error: string | null };
+    }>(DNC_MUTATION, { input: { prospectIds: [prospectId], doNotContact: true } });
+
+    const error = data.setProspectsAsDoNotContact?.error;
+    if (error) result.errors.push(`do-not-contact: ${error}`);
+    else result.doNotContact = true;
+  } catch (e) {
+    result.errors.push(`do-not-contact: ${(e as Error).message}`);
+  }
+
+  try {
+    const data = await s.gql<{ cancelProspects: { error: string | null } }>(
+      CANCEL_MUTATION,
+      { input: { accountId: workspaceId(), prospectIds: [prospectId] } },
+    );
+
+    const error = data.cancelProspects?.error;
+    if (error) result.errors.push(`cancel sequence: ${error}`);
+    else result.cancelled = true;
+  } catch (e) {
+    result.errors.push(`cancel sequence: ${(e as Error).message}`);
+  }
+
+  return result;
+}
+
 /** ------------------------------------------------------------------ send */
 
 export type SendReplyInput = {

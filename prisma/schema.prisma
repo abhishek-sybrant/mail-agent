@@ -450,6 +450,8 @@ model QmConversation {
   qm_campaign_id String?
   campaign_name  String?
 
+  /// QuickMail's prospect id — what a do-not-contact or cancel is applied to.
+  qm_prospect_id   String?
   prospect_email   String?
   prospect_name    String?
   prospect_title   String?
