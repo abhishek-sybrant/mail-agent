@@ -360,6 +360,69 @@
     </tbody>
   </table>
 
+  <h3>2.4 · What we send — the write side</h3>
+  <p>
+    Everything above is reading. This is what leaves the app. GraphQL has no GET
+    and POST — every call is an HTTP POST — so the distinction that matters is
+    <em>query</em> versus <em>mutation</em>, and mutations are the ones that
+    change the account. All of them route through a single gate that refuses to
+    run unless <code>QUICKMAIL_DRY_RUN=false</code> is set explicitly.
+  </p>
+
+  <table>
+    <thead><tr><th style="width:34%">Mutation → sent</th><th>Payload we build</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>createCampaign</code><div class="small muted">the shell</div></td>
+        <td><code>{ workspaceId, name }</code></td>
+      </tr>
+      <tr>
+        <td><code>setCampaignEmailAccounts</code><div class="small muted">one call per mailbox</div></td>
+        <td><code>{ campaignId, emailAccountIds: [id], assign: true }</code><div class="small muted">Sent individually, not as a batch — 5 of our 17 mailboxes return HTTP 500, and a batch would lose the whole campaign to one bad sender.</div></td>
+      </tr>
+      <tr>
+        <td><code>updateCampaignAutomation</code><div class="small muted">the sending window</div></td>
+        <td><code>{ campaignId, timeZone, businessDays: {mon…sun}, timeRanges: [{day, from, to}] }</code><div class="small muted"><code>timeZone</code> must be IANA — a display label is rejected, non-fatally.</div></td>
+      </tr>
+      <tr>
+        <td><code>createEmailStep</code><div class="small muted">each email in the sequence</div></td>
+        <td><code>{ campaignId, subject, body, preview, cced, bcced, draft, paused, openTracking }</code><div class="small muted"><code>body</code> is HTML. Follow-ups omit <code>subject</code> and send <code>continueThread: true</code> so the reply stays on one thread.</div></td>
+      </tr>
+      <tr>
+        <td><code>createWaitStep</code><div class="small muted">between emails, and at the end</div></td>
+        <td><code>{ campaignId, unit: "days", value, business: true, paused }</code><div class="small muted"><code>"days"</code> plural — the singular is rejected.</div></td>
+      </tr>
+      <tr>
+        <td><code>createLeads</code><div class="small muted">prospects QuickMail doesn't have</div></td>
+        <td><code>{ workspaceId, leads: [{ email, firstName, lastName, companyName, title, role, phone, location, score }] }</code></td>
+      </tr>
+      <tr>
+        <td><code>addLeadsToCampaign</code><div class="small muted">enrolment</div></td>
+        <td><code>{ campaignId, leadIds: [...] }</code><div class="small muted">Every address passes the suppression gate first. Barred ones never reach this call.</div></td>
+      </tr>
+      <tr>
+        <td><code>updateEmailStep</code><div class="small muted">our stand-in for a schedule</div></td>
+        <td><code>{ stepId, paused }</code><div class="small muted">QuickMail has no campaign start or end date, so the scheduler pauses and unpauses each variation.</div></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">
+    Writes on the internal API — <code>replyToEmail</code>,
+    <code>setProspectsAsDoNotContact</code>, <code>cancelProspects</code> — are
+    covered in §7, because each of those is gated by a human click rather than
+    by code.
+  </p>
+
+  <div class="callout">
+    <strong>Reads are free; writes are not.</strong> Queries run whenever the
+    dashboard needs them, paced to the documented 10-per-10-seconds. Mutations
+    are the opposite: dry-run by default, one campaign at a time, and every
+    campaign id must be listed in <code>QUICKMAIL_ALLOWED_CAMPAIGN_IDS</code>
+    before anything can touch it. The key points at a live production workspace
+    with real sending domains and 50,000 real prospects.
+  </div>
+
   <div class="callout warn">
     <strong>Standing risk.</strong> These five are undocumented and unversioned.
     QuickMail can change them without notice, and when they do, replies and
@@ -761,9 +824,192 @@
   </figure>
 </section>
 
+<!-- ========================================================== REPLIES -->
+<section>
+  <h2>8 · Handling replies — today and next</h2>
+
+  <p>
+    A reply is the only moment in outbound where a human is definitely needed.
+    Everything before it is volume; everything after it is a conversation. The
+    design point is that the app should do all the preparation and none of the
+    deciding.
+  </p>
+
+  <h3>How a reply is handled today</h3>
+  <figure class="keep">
+    <svg viewBox="0 0 700 260" width="100%" role="img"
+         aria-label="Flow of a reply: sync brings it in, it is classified, then routed to one of four human actions — reply, schedule, stop, or done.">
+      <style>
+        .rb  { fill:#fcfcfb; stroke:#0b0b0b; stroke-width:1.4; }
+        .rbn { fill:#f4f3f0; stroke:#dcdbd6; stroke-width:1.4; }
+        .rt  { font: 600 10px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .rs  { font: 8.5px "Segoe UI", sans-serif; fill:#52514e; }
+        .rl  { stroke:#52514e; stroke-width:1.4; fill:none; marker-end:url(#ar2); }
+      </style>
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#52514e"/>
+        </marker>
+      </defs>
+
+      <rect class="rb" x="0" y="8" width="130" height="46" rx="5"/>
+      <text class="rt" x="12" y="28">Reply arrives</text>
+      <text class="rs" x="12" y="43">mirrored by the sync</text>
+
+      <rect class="rb" x="160" y="8" width="130" height="46" rx="5"/>
+      <text class="rt" x="172" y="28">Classified</text>
+      <text class="rs" x="172" y="43">locally, quoted text cut</text>
+      <path class="rl" d="M132,31 L158,31"/>
+
+      <rect class="rbn" x="320" y="8" width="130" height="46" rx="5"/>
+      <text class="rt" x="332" y="28">Auto-reply?</text>
+      <text class="rs" x="332" y="43">237 of 375 — hidden</text>
+      <path class="rl" d="M292,31 L318,31"/>
+
+      <rect class="rb" x="480" y="8" width="220" height="46" rx="5"/>
+      <text class="rt" x="492" y="28">Shown in the Replies tab</text>
+      <text class="rs" x="492" y="43">whole thread, both directions</text>
+      <path class="rl" d="M452,31 L478,31"/>
+
+      <path class="rl" d="M590,56 L590,86"/>
+      <rect class="rb" x="480" y="88" width="220" height="42" rx="5"/>
+      <text class="rt" x="492" y="106">Draft prepared on request</text>
+      <text class="rs" x="492" y="121">AI, or a template when none is up</text>
+
+      <path class="rl" d="M590,132 L590,160"/>
+      <text class="rt" x="300" y="176">A person decides — one of four:</text>
+
+      <rect class="rb" x="0" y="190" width="165" height="52" rx="5"/>
+      <text class="rt" x="12" y="210">Send reply</text>
+      <text class="rs" x="12" y="225">threaded, from the</text>
+      <text class="rs" x="12" y="237">receiving mailbox</text>
+
+      <rect class="rb" x="180" y="190" width="165" height="52" rx="5"/>
+      <text class="rt" x="192" y="210">Schedule</text>
+      <text class="rs" x="192" y="225">Google Calendar, guest</text>
+      <text class="rs" x="192" y="237">already invited</text>
+
+      <rect class="rb" x="360" y="190" width="165" height="52" rx="5"/>
+      <text class="rt" x="372" y="210">Stop emailing</text>
+      <text class="rs" x="372" y="225">bars here, do-not-contact</text>
+      <text class="rs" x="372" y="237">and cancels in QuickMail</text>
+
+      <rect class="rb" x="540" y="190" width="160" height="52" rx="5"/>
+      <text class="rt" x="552" y="210">Done</text>
+      <text class="rs" x="552" y="225">out of the queue,</text>
+      <text class="rs" x="552" y="237">nothing sent</text>
+    </svg>
+    <figcaption>
+      The app narrows 375 threads to the 138 a person should look at, and
+      prepares a draft for each. It never chooses between the four boxes.
+    </figcaption>
+  </figure>
+
+  <h3>Where this goes next</h3>
+  <table>
+    <thead><tr><th style="width:28%">Idea</th><th style="width:14%">Effort</th><th>What it buys</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Bulk-action the opt-outs</strong></td>
+        <td>small</td>
+        <td>16 explicit opt-outs are queued one at a time. A reviewed multi-select — still one confirmation, but over a list — clears a compliance backlog in a minute instead of an afternoon.</td>
+      </tr>
+      <tr>
+        <td><strong>Reply webhook</strong></td>
+        <td>small</td>
+        <td>Replies currently appear when someone syncs. A public tunnel to the existing Zapier endpoint makes them arrive in seconds, and the queue reflects reality without anyone pressing a button.</td>
+      </tr>
+      <tr>
+        <td><strong>Suggested action, not just a draft</strong></td>
+        <td>medium</td>
+        <td>The classification already implies the next move. Pre-selecting it — "this looks like a stop", "this looks like a meeting" — makes the queue a confirm-or-correct list rather than a read-and-decide one.</td>
+      </tr>
+      <tr>
+        <td><strong>Learn from corrections</strong></td>
+        <td>medium</td>
+        <td>Every time someone overrides a classification, that is a labelled example. Feeding those back into the eval set means the classifier improves from use instead of from us guessing.</td>
+      </tr>
+      <tr>
+        <td><strong>Thread-aware drafting</strong></td>
+        <td>medium</td>
+        <td>Drafts see only the latest inbound message. Giving the model the whole exchange — and what the campaign originally offered — stops it re-pitching something already discussed.</td>
+      </tr>
+      <tr>
+        <td><strong>Follow-up reminders</strong></td>
+        <td>medium</td>
+        <td>A positive reply that nobody answers is worse than no reply. A thread that stays open past a few days should resurface.</td>
+      </tr>
+      <tr>
+        <td><strong>Send scheduling</strong></td>
+        <td>small</td>
+        <td>Approved replies go out immediately. Holding them for business hours in the prospect's zone is a better first impression.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========================================================== ROADMAP -->
+<section>
+  <h2>9 · Where the product goes</h2>
+
+  <p>
+    Ordered by what is holding the account back, not by what is interesting to
+    build. The first group is the difference between a tool that works and one
+    that is trusted.
+  </p>
+
+  <h3>First — fix what is actively costing us</h3>
+  <table>
+    <thead><tr><th style="width:30%">Work</th><th>Why it is first</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Seed the suppression list properly</strong></td>
+        <td>9 entries against 42,339 bounce events. A CSV export from QuickMail, loaded through the existing importer, stops the same dead addresses being re-imported and re-sent to — roughly 41 bounces per unique bad address today.</td>
+      </tr>
+      <tr>
+        <td><strong>Pre-send list hygiene</strong></td>
+        <td>A campaign at 80.8% bounce should never have sent. Verifying addresses before enrolment, and refusing to launch above a threshold, protects the sending domains every other campaign depends on.</td>
+      </tr>
+      <tr>
+        <td><strong>Clear the 38 stop requests</strong></td>
+        <td>People who asked to be left alone are still enrolled. This is the one item with legal weight.</td>
+      </tr>
+      <tr>
+        <td><strong>A working AI provider</strong></td>
+        <td>Everything AI-shaped is currently running on rules. A funded key restores drafting and classification together.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Then — make the daily work faster</h3>
+  <ul>
+    <li><strong>Deliverability dashboard.</strong> Bounce rate per campaign and per sending domain, with a warning before a campaign goes live rather than a post-mortem after it burns a domain.</li>
+    <li><strong>Campaign templates from what worked.</strong> 359 campaigns and 258 replies is enough signal to say which openers earn answers. Right now that lives in nobody's head.</li>
+    <li><strong>Scheduled sync.</strong> The reply mirror refreshes when someone remembers. A timed job, or the webhook above, removes that dependency.</li>
+    <li><strong>Mailbox health.</strong> 5 of 17 mailboxes fail sender assignment and it is discovered at campaign-creation time. Checking continuously would surface it before it blocks anyone.</li>
+  </ul>
+
+  <h3>Later — worth doing, not yet urgent</h3>
+  <ul>
+    <li><strong>Reduce the QuickMail-internal dependency.</strong> Reading replies straight from the sending mailboxes over IMAP would remove the undocumented API from the critical path — at the cost of credentials for 17 mailboxes across 13 domains. Worth revisiting if QuickMail ever breaks the internal endpoint.</li>
+    <li><strong>Multi-user.</strong> One shared login today. Real accounts would make the audit trail — already written on every send and stop — actually attributable.</li>
+    <li><strong>Move off SQLite.</strong> Fine for one machine and one operator. A second concurrent user is the trigger to reconsider, not a date.</li>
+    <li><strong>Automated tests.</strong> There is no test framework; correctness is currently enforced by the eval harness for classification and by verifying against QuickMail after every write. That has caught real bugs, but it does not scale.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>What we are deliberately not doing.</strong> Sending without a human
+    click, and suppressing without one. Both have been asked for as
+    time-savers, and both remove the only check that has caught our own mistakes
+    — including a draft that looked fine and was written by a template because
+    no model was running.
+  </div>
+</section>
+
 <!-- =========================================================== STATUS -->
 <section>
-  <h2>8 · Where it stands</h2>
+  <h2>10 · Where it stands</h2>
 
   <div class="two-col">
     <div>
