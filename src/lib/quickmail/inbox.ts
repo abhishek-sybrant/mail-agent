@@ -65,6 +65,22 @@ export class QuickMailSessionError extends Error {
 
 /** ---------------------------------------------------------------- session */
 
+const TRANSPORT_RETRIES = 4;
+
+/**
+ * Whether a failure is worth retrying.
+ *
+ * These all mean "the request never got an answer" — a dropped connection, or
+ * the page navigating out from under the evaluate. Anything else is a real
+ * response and must not be repeated, since some of these calls send email.
+ */
+function isTransient(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Failed to fetch|NetworkError|ERR_|Execution context was destroyed|Target closed|navigation|detached/i.test(
+    message,
+  );
+}
+
 export type Session = {
   gql: <T>(query: string, variables: Record<string, unknown>) => Promise<T>;
   page: Page;
@@ -111,25 +127,60 @@ export async function withSession<T>(fn: (s: Session) => Promise<T>): Promise<T>
     }
 
     const gql = async <R>(query: string, variables: Record<string, unknown>) => {
-      const result = await page!.evaluate(
-        async ([q, v]) => {
-          const csrf =
-            document
-              .querySelector('meta[name="csrf-token"]')
-              ?.getAttribute("content") ?? "";
-          const res = await fetch("/graphql", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json, text/plain, */*",
-              "X-CSRF-Token": csrf,
+      let result: { status: number; text: string } | null = null;
+      let lastError: unknown = null;
+
+      /**
+       * Retry the transport, not the answer.
+       *
+       * A full sync is ~750 sequential round trips over roughly ten minutes,
+       * and one "Failed to fetch" used to abort the whole run — a real sync
+       * died at 240 of 374. Only connection-level failures are retried; a
+       * GraphQL error or an HTTP status is an answer and is surfaced at once.
+       */
+      for (let attempt = 1; attempt <= TRANSPORT_RETRIES; attempt++) {
+        try {
+          result = await page!.evaluate(
+            async ([q, v]) => {
+              const csrf =
+                document
+                  .querySelector('meta[name="csrf-token"]')
+                  ?.getAttribute("content") ?? "";
+              const res = await fetch("/graphql", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Accept: "application/json, text/plain, */*",
+                  "X-CSRF-Token": csrf,
+                },
+                body: JSON.stringify({ query: q, variables: v }),
+              });
+              return { status: res.status, text: await res.text() };
             },
-            body: JSON.stringify({ query: q, variables: v }),
-          });
-          return { status: res.status, text: await res.text() };
-        },
-        [query, variables] as [string, Record<string, unknown>],
-      );
+            [query, variables] as [string, Record<string, unknown>],
+          );
+          break;
+        } catch (error) {
+          lastError = error;
+          if (!isTransient(error) || attempt === TRANSPORT_RETRIES) break;
+
+          const wait = 1_000 * 2 ** (attempt - 1); // 1s, 2s, 4s
+          console.warn(
+            `[quickmail] request failed (attempt ${attempt}/${TRANSPORT_RETRIES}), retrying in ${wait / 1000}s`,
+          );
+          await new Promise((r) => setTimeout(r, wait));
+          // A reload also recovers a page that navigated mid-run.
+          await page!.waitForLoadState("domcontentloaded").catch(() => {});
+        }
+      }
+
+      if (!result) {
+        throw new QuickMailSessionError(
+          `QuickMail request failed after ${TRANSPORT_RETRIES} attempts: ` +
+            `${lastError instanceof Error ? lastError.message : "unknown"}`,
+          lastError,
+        );
+      }
 
       let json: { data?: R; errors?: { message: string }[] };
       try {
