@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI SDR Dashboard — Project Overview</title>
+<style>
+  /* Print-only document: no dark mode, no hover layer — a PDF has neither. */
+  @page { size: A4; margin: 16mm 14mm; }
+
+  :root {
+    --surface:        #fcfcfb;
+    --surface-sunk:   #f4f3f0;
+    --rule:           #dcdbd6;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #7a7975;
+
+    /* Diverging pair from the reference palette: blue <-> gray <-> red.
+       The gray midpoint fails the validator's chroma floor by design —
+       that check scopes to categorical palettes, where every slot must be
+       a distinct hue. Here gray means "neither pole", which is the point. */
+    --pole-pos:   #2a78d6;
+    --neutral:    #8a8984;
+    --pole-neg:   #e34948;
+
+    --seq-500:    #256abf;
+    --seq-450:    #2a78d6;
+    --seq-300:    #6da7ec;
+    --seq-200:    #9ec5f4;
+
+    --good:     #0ca30c;
+    --warning:  #fab219;
+    --critical: #d03b3b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.55;
+    color: var(--text-primary);
+    background: var(--surface);
+  }
+
+  h1 { font-size: 26pt; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.4pt; }
+  h2 {
+    font-size: 15pt; margin: 0 0 10px; letter-spacing: -0.2pt;
+    padding-bottom: 6px; border-bottom: 2px solid var(--text-primary);
+  }
+  h3 { font-size: 11.5pt; margin: 18px 0 6px; }
+  p  { margin: 0 0 10px; }
+  ul, ol { margin: 0 0 10px; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+  code {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 8.8pt;
+    background: var(--surface-sunk);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  strong { font-weight: 650; }
+  .muted { color: var(--text-secondary); }
+  .small { font-size: 9pt; }
+
+  section { page-break-before: always; padding-top: 2mm; }
+  section:first-of-type { page-break-before: avoid; }
+  .keep { page-break-inside: avoid; }
+
+  /* ---------------------------------------------------------- cover */
+  .cover { page-break-after: always; padding-top: 38mm; }
+  .cover .eyebrow {
+    text-transform: uppercase; letter-spacing: 1.6pt;
+    font-size: 8.5pt; color: var(--text-secondary); margin-bottom: 14px;
+  }
+  .cover .lede { font-size: 12.5pt; color: var(--text-secondary); max-width: 132mm; }
+  .cover-facts {
+    margin-top: 30mm; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  }
+  .cover-facts div { border-top: 2px solid var(--text-primary); padding-top: 8px; }
+  .cover-facts .n { font-size: 17pt; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .cover-facts .l { font-size: 8.5pt; color: var(--text-secondary); line-height: 1.3; }
+
+  /* ---------------------------------------------------------- tables */
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 9.2pt; }
+  th, td {
+    text-align: left; padding: 5px 8px 5px 0;
+    border-bottom: 1px solid var(--rule); vertical-align: top;
+  }
+  th {
+    font-size: 8pt; text-transform: uppercase; letter-spacing: 0.6pt;
+    color: var(--text-secondary); border-bottom: 1.5px solid var(--text-primary);
+    font-weight: 600;
+  }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; padding-right: 0; }
+
+  .tag {
+    display: inline-block; font-size: 7.6pt; padding: 1px 6px; border-radius: 9px;
+    border: 1px solid var(--rule); white-space: nowrap;
+  }
+  .tag-used  { border-color: var(--pole-pos); color: var(--pole-pos); }
+  .tag-no    { border-color: var(--rule); color: var(--text-muted); }
+  .tag-block { border-color: var(--critical); color: var(--critical); }
+
+  /* ---------------------------------------------------------- figures */
+  figure { margin: 14px 0 18px; page-break-inside: avoid; }
+  figcaption {
+    font-size: 8.6pt; color: var(--text-secondary);
+    margin-top: 6px; line-height: 1.4;
+  }
+  .fig-title { font-size: 10.5pt; font-weight: 650; margin-bottom: 2px; }
+  .fig-sub { font-size: 8.6pt; color: var(--text-secondary); margin-bottom: 10px; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 8px 0 2px; font-size: 8.6pt; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  .callout {
+    border-left: 3px solid var(--text-primary);
+    background: var(--surface-sunk);
+    padding: 9px 12px; margin: 12px 0; font-size: 9.4pt;
+  }
+  .callout.warn { border-left-color: var(--critical); }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 12px 0 4px; }
+  .stat { border-top: 2px solid var(--text-primary); padding-top: 7px; }
+  .stat .n { font-size: 15pt; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .stat .l { font-size: 8.3pt; color: var(--text-secondary); line-height: 1.35; }
+  .stat .d { font-size: 8.3pt; margin-top: 2px; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ COVER -->
+<div class="cover">
+  <div class="eyebrow">Internal engineering review</div>
+  <h1>AI SDR Dashboard</h1>
+  <p class="lede">
+    A local console over the Sybrant QuickMail account: it builds campaigns,
+    mirrors every inbound reply, drafts answers, and gates anything that leaves
+    the building behind a human click.
+  </p>
+  <p class="lede small" style="margin-top:14px">
+    This document covers what the system does, which QuickMail APIs exist and
+    which we actually use, how the reply sync works, and the wall we hit that
+    forced browser automation.
+  </p>
+
+  <div class="cover-facts">
+    <div><div class="n">50,546</div><div class="l">leads mirrored</div></div>
+    <div><div class="n">375</div><div class="l">reply threads</div></div>
+    <div><div class="n">401,428</div><div class="l">emails sent to date</div></div>
+    <div><div class="n">17</div><div class="l">sending mailboxes</div></div>
+  </div>
+  <p class="small muted" style="margin-top:16mm">
+    Figures read from the live account and the local mirror on 7 August 2026.
+  </p>
+</div>
+
+<!-- ========================================================== OVERVIEW -->
+<section>
+  <h2>1 · What the system is</h2>
+
+  <p>
+    QuickMail is the system of record for sending. This app is the orchestration
+    layer around it: it holds the leads, the templates, the AI, and — most
+    importantly — the approvals. Nothing outbound and nothing irreversible
+    happens without a person clicking.
+  </p>
+
+  <figure class="keep">
+    <div class="fig-title">Architecture</div>
+    <div class="fig-sub">Three ways into QuickMail, because one is not enough</div>
+    <svg viewBox="0 0 720 300" width="100%" role="img"
+         aria-label="Architecture diagram: the Next.js app talks to a local SQLite mirror, the QuickMail v2 GraphQL API, and QuickMail's internal API through an attached browser.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#52514e"/>
+        </marker>
+      </defs>
+      <style>
+        .bx { fill:#fcfcfb; stroke:#0b0b0b; stroke-width:1.5; }
+        .bx-sunk { fill:#f4f3f0; stroke:#dcdbd6; stroke-width:1.5; }
+        .t  { font: 600 12px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .ts { font: 9.5px "Segoe UI", sans-serif; fill:#52514e; }
+        .tn { font: 8.5px "Segoe UI", sans-serif; fill:#7a7975; }
+        .ln { stroke:#52514e; stroke-width:1.5; fill:none; marker-end:url(#ar); }
+        .ln-d { stroke:#e34948; stroke-width:1.5; fill:none; stroke-dasharray:5 3; marker-end:url(#ar); }
+      </style>
+
+      <!-- app -->
+      <rect class="bx" x="10" y="112" width="150" height="76" rx="5"/>
+      <text class="t" x="24" y="140">AI SDR Dashboard</text>
+      <text class="ts" x="24" y="157">Next.js 16 · React 19</text>
+      <text class="tn" x="24" y="172">localhost:3000</text>
+
+      <!-- sqlite -->
+      <rect class="bx-sunk" x="10" y="222" width="150" height="60" rx="5"/>
+      <text class="t" x="24" y="246">SQLite mirror</text>
+      <text class="tn" x="24" y="262">Prisma 7 · 17 migrations</text>
+      <path class="ln" d="M85,190 L85,220"/>
+
+      <!-- v2 api -->
+      <rect class="bx" x="255" y="18" width="200" height="72" rx="5"/>
+      <text class="t" x="269" y="42">QuickMail v2 GraphQL</text>
+      <text class="ts" x="269" y="59">api.quickmail.com</text>
+      <text class="tn" x="269" y="75">13 queries · 24 mutations · API key</text>
+
+      <!-- v1 rest -->
+      <rect class="bx-sunk" x="255" y="112" width="200" height="60" rx="5"/>
+      <text class="t" x="269" y="136" fill="#7a7975">QuickMail v1 REST</text>
+      <text class="tn" x="269" y="153">every reply path returns 404</text>
+
+      <!-- browser -->
+      <rect class="bx" x="255" y="196" width="200" height="86" rx="5"/>
+      <text class="t" x="269" y="220">Attached Edge browser</text>
+      <text class="ts" x="269" y="237">Playwright over CDP :9222</text>
+      <text class="tn" x="269" y="253">the signed-in session, not a password</text>
+      <text class="tn" x="269" y="268">used for replies, sending, stopping</text>
+
+      <!-- internal -->
+      <rect class="bx" x="530" y="196" width="180" height="86" rx="5"/>
+      <text class="t" x="544" y="220">Internal API</text>
+      <text class="ts" x="544" y="237">next.quickmail.com</text>
+      <text class="tn" x="544" y="253">323 mutations</text>
+      <text class="tn" x="544" y="268">introspection disabled</text>
+
+      <!-- sending -->
+      <rect class="bx" x="530" y="18" width="180" height="72" rx="5"/>
+      <text class="t" x="544" y="42">Sending</text>
+      <text class="ts" x="544" y="59">17 mailboxes · 13 domains</text>
+      <text class="tn" x="544" y="75">Gmail · Outlook · custom</text>
+
+      <path class="ln" d="M162,132 L253,60"/>
+      <path class="ln-d" d="M162,146 L253,142"/>
+      <path class="ln" d="M162,168 L253,232"/>
+      <path class="ln" d="M457,239 L528,239"/>
+      <path class="ln" d="M455,54 L528,54"/>
+
+      <text class="tn" x="176" y="120">campaigns, leads, stats</text>
+      <text class="tn" x="176" y="196" fill="#e34948">no reply data available</text>
+    </svg>
+    <figcaption>
+      Solid lines are routes in use. The dashed red line is the v1 REST API,
+      probed and abandoned — every reply-shaped path returns 404.
+    </figcaption>
+  </figure>
+
+  <h3>Tech stack</h3>
+  <table>
+    <thead><tr><th style="width:26%">Layer</th><th style="width:30%">Choice</th><th>Why this one</th></tr></thead>
+    <tbody>
+      <tr><td>Framework</td><td>Next.js 16 (App Router)</td><td>Server components read the database directly; no separate API tier to keep in step.</td></tr>
+      <tr><td>Database</td><td>SQLite via Prisma 7</td><td>Local-first. The whole account fits in one file that can be copied and inspected.</td></tr>
+      <tr><td>Auth</td><td>Auth.js v5, JWT</td><td>Internal tool, one workspace; no session table needed.</td></tr>
+      <tr><td>UI</td><td>Tailwind v4 · shadcn/ui</td><td>Accessible primitives without a component library to fight.</td></tr>
+      <tr><td>Browser automation</td><td>Playwright over CDP</td><td>Attaches to the user's signed-in Edge. No QuickMail password is ever stored.</td></tr>
+      <tr><td>AI</td><td>Pluggable: Gemini · Claude · Ollama · off</td><td>Per-task provider, so a dead key degrades one feature instead of all of them.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================== API -->
+<section>
+  <h2>2 · The QuickMail API surface</h2>
+
+  <p>
+    Three separate APIs carry the QuickMail name, and they are not equivalent.
+    The published one is small; their own web app uses a far larger private one.
+    That gap is the single most important fact about this integration.
+  </p>
+
+  <figure class="keep">
+    <div class="fig-title">What we are allowed to call vs what their app calls</div>
+    <div class="fig-sub">Mutations available on each surface</div>
+    <svg viewBox="0 0 700 150" width="100%" role="img"
+         aria-label="Bar chart: the public v2 GraphQL API exposes 24 mutations; QuickMail's internal API exposes 323.">
+      <style>
+        .lbl { font: 10px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .val { font: 600 12px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .sub { font: 8.5px "Segoe UI", sans-serif; fill:#7a7975; }
+      </style>
+      <text class="lbl" x="0" y="34">Public v2 GraphQL</text>
+      <rect x="150" y="22" width="41" height="18" rx="4" fill="#2a78d6"/>
+      <text class="val" x="199" y="36">24</text>
+      <text class="sub" x="0" y="48">documented, API key</text>
+
+      <text class="lbl" x="0" y="96">Internal SPA API</text>
+      <rect x="150" y="84" width="550" height="18" rx="4" fill="#8a8984"/>
+      <text class="val" x="655" y="98" fill="#fcfcfb" text-anchor="end">323</text>
+      <text class="sub" x="0" y="110">undocumented, browser session</text>
+
+      <line x1="150" y1="128" x2="700" y2="128" stroke="#dcdbd6" stroke-width="1"/>
+      <text class="sub" x="150" y="142">0</text>
+      <text class="sub" x="700" y="142" text-anchor="end">323 mutations</text>
+    </svg>
+    <figcaption>
+      The public API cannot read a reply, cannot send an email, and cannot set a
+      campaign trigger. Their own front end does all three.
+    </figcaption>
+  </figure>
+
+  <h3>2.1 · Public v2 GraphQL — <code>api.quickmail.com/v2/graphql</code></h3>
+  <p class="small muted">
+    Auth: the raw API key in an <code>Authorization</code> header — no <code>Bearer</code> prefix.
+    Rate limit: 10 requests per 10 seconds, enforced exactly.
+  </p>
+
+  <table>
+    <thead><tr><th style="width:32%">Query</th><th style="width:14%">Used</th><th>What we take from it</th></tr></thead>
+    <tbody>
+      <tr><td><code>campaigns</code> / <code>campaign</code></td><td><span class="tag tag-used">yes</span></td><td>359 campaigns: name, paused, steps, and all delivery stats.</td></tr>
+      <tr><td><code>leads</code> / <code>lead</code></td><td><span class="tag tag-used">yes</span></td><td>50,546 prospects: name, email, company, title, phone, location, tags.</td></tr>
+      <tr><td><code>emailAccounts</code></td><td><span class="tag tag-used">yes</span></td><td>17 mailboxes with the <code>authorized</code> flag — a dead sender is invisible otherwise.</td></tr>
+      <tr><td><code>workspace</code> / <code>workspaces</code></td><td><span class="tag tag-used">yes</span></td><td>Workspace 54552, used to scope every other call.</td></tr>
+      <tr><td><code>tags</code>, <code>customProperties</code>, <code>agency</code></td><td><span class="tag tag-no">no</span></td><td>Available; nothing in the product needs them yet.</td></tr>
+    </tbody>
+  </table>
+
+  <table>
+    <thead><tr><th style="width:32%">Mutation</th><th style="width:14%">Used</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>createCampaign</code></td><td><span class="tag tag-used">yes</span></td><td>Creates the campaign shell.</td></tr>
+      <tr><td><code>createEmailStep</code> · <code>createWaitStep</code></td><td><span class="tag tag-used">yes</span></td><td>Builds the sequence. Must end on a wait step — see §5.</td></tr>
+      <tr><td><code>setCampaignEmailAccounts</code></td><td><span class="tag tag-used">yes</span></td><td>Attaches senders. Returns HTTP 500 for 5 of our 17 mailboxes.</td></tr>
+      <tr><td><code>updateCampaignAutomation</code></td><td><span class="tag tag-used">yes</span></td><td>Sending window. Needs an IANA zone, not a display label.</td></tr>
+      <tr><td><code>createLeads</code> · <code>addLeadsToCampaign</code></td><td><span class="tag tag-used">yes</span></td><td>Enrols prospects, after the suppression gate.</td></tr>
+      <tr><td><code>updateEmailStep</code></td><td><span class="tag tag-used">yes</span></td><td>Pauses individual variations — our stand-in for a campaign schedule.</td></tr>
+      <tr><td>LinkedIn steps (7 mutations)</td><td><span class="tag tag-no">no</span></td><td>Not part of this workflow.</td></tr>
+      <tr><td>Anything that sends or reads mail</td><td><span class="tag tag-block">absent</span></td><td>Does not exist on this API.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 · v1 REST — <code>api.quickmail.io/v1</code></h3>
+  <p>
+    Probed endpoint by endpoint for reply data:
+    <code>/replies</code>, <code>/inbox</code>, <code>/messages</code>, <code>/threads</code>,
+    <code>/conversations</code>, <code>/emails</code>, <code>/activity</code>, <code>/unibox</code>.
+    <strong>All returned 404.</strong> The surface is read-only campaign listing and nothing we need.
+  </p>
+
+  <h3>2.3 · Internal API — <code>next.quickmail.com/graphql</code></h3>
+  <p>
+    This is what QuickMail's own web app calls. Introspection is disabled, so the
+    operations were read out of their JavaScript bundle rather than discovered by
+    querying. Five are in use:
+  </p>
+  <table>
+    <thead><tr><th style="width:40%">Operation</th><th>What it does for us</th></tr></thead>
+    <tbody>
+      <tr><td><code>appComponentsWorkspaceOpportunities</code></td><td>Lists reply threads — 374 of them, 30 per page.</td></tr>
+      <tr><td><code>workspaceAppOpportunity</code></td><td>One thread in full: every message, both directions, with bodies.</td></tr>
+      <tr><td><code>replyToEmail</code></td><td>Sends a reply, threaded, from the mailbox that received it.</td></tr>
+      <tr><td><code>setProspectsAsDoNotContact</code></td><td>Bars a prospect from future enrolment.</td></tr>
+      <tr><td><code>cancelProspects</code></td><td>Cancels a sequence already in flight.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>Standing risk.</strong> These five are undocumented and unversioned.
+    QuickMail can change them without notice, and when they do, replies and
+    sending break. Everything built on them degrades to a clear error rather
+    than silent failure, and the public API remains the only path for campaign
+    creation.
+  </div>
+</section>
+
+<!-- ============================================================= DATA -->
+<section>
+  <h2>3 · What we get out of QuickMail</h2>
+
+  <div class="stat-row">
+    <div class="stat"><div class="n">375</div><div class="l">reply threads mirrored</div></div>
+    <div class="stat"><div class="n">1,127</div><div class="l">messages, both directions</div></div>
+    <div class="stat"><div class="n">574</div><div class="l">inbound replies</div></div>
+    <div class="stat"><div class="n">237</div><div class="l">of those are auto-replies</div></div>
+  </div>
+
+  <table>
+    <thead><tr><th style="width:26%">Data</th><th style="width:20%">Source</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Campaigns &amp; stats</td><td>v2 GraphQL</td><td>Sent, delivered, opens, clicks, replies, bounces, unsubscribes — per campaign.</td></tr>
+      <tr><td>Leads</td><td>v2 GraphQL</td><td>50,546 prospects with contact details and tags.</td></tr>
+      <tr><td>Mailboxes</td><td>v2 GraphQL</td><td>17 accounts, each with authorised / paused state.</td></tr>
+      <tr><td>Reply threads</td><td>Internal API</td><td>Subject, HTML body, from / to / cc, timestamps, campaign, receiving mailbox.</td></tr>
+      <tr><td>Prospect flags</td><td>Internal API</td><td>Do-not-contact, and the prospect id needed to set it.</td></tr>
+      <tr><td>Reply classification</td><td>Ours</td><td>QuickMail returns <code>null</code> on nearly every thread; we classify locally.</td></tr>
+    </tbody>
+  </table>
+
+  <figure class="keep">
+    <div class="fig-title">What the 138 human replies actually say</div>
+    <div class="fig-sub">Auto-replies excluded · classified locally</div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--pole-pos)"></i>Worth pursuing</span>
+      <span><i class="swatch" style="background:var(--neutral)"></i>Neither</span>
+      <span><i class="swatch" style="background:var(--pole-neg)"></i>Wants out</span>
+    </div>
+    <svg viewBox="0 0 700 210" width="100%" role="img"
+         aria-label="Bar chart of reply sentiment: meeting request 5, positive 8, neutral 39, unclassified 48, negative 22, unsubscribe 16.">
+      <style>
+        .cat { font: 10px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .cnt { font: 600 11px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .not { font: 8.5px "Segoe UI", sans-serif; fill:#7a7975; }
+      </style>
+      <!-- scale: 48 max -> 470px -->
+      <text class="cat" x="0" y="21">Meeting request</text>
+      <rect x="150" y="10" width="49" height="15" rx="4" fill="#2a78d6"/>
+      <text class="cnt" x="207" y="22">5</text>
+
+      <text class="cat" x="0" y="53">Positive</text>
+      <rect x="150" y="42" width="78" height="15" rx="4" fill="#2a78d6"/>
+      <text class="cnt" x="236" y="54">8</text>
+
+      <text class="cat" x="0" y="85">Neutral</text>
+      <rect x="150" y="74" width="382" height="15" rx="4" fill="#8a8984"/>
+      <text class="cnt" x="540" y="86">39</text>
+
+      <text class="cat" x="0" y="117">Unclassified</text>
+      <rect x="150" y="106" width="470" height="15" rx="4" fill="#c9c8c3"/>
+      <text class="cnt" x="628" y="118">48</text>
+
+      <text class="cat" x="0" y="149">Not interested</text>
+      <rect x="150" y="138" width="215" height="15" rx="4" fill="#e34948"/>
+      <text class="cnt" x="373" y="150">22</text>
+
+      <text class="cat" x="0" y="181">Asked to unsubscribe</text>
+      <rect x="150" y="170" width="157" height="15" rx="4" fill="#e34948"/>
+      <text class="cnt" x="315" y="182">16</text>
+
+      <line x1="150" y1="196" x2="620" y2="196" stroke="#dcdbd6"/>
+      <text class="not" x="150" y="207">0</text>
+      <text class="not" x="620" y="207" text-anchor="end">48 threads</text>
+    </svg>
+    <figcaption>
+      <strong>38 people have asked to stop</strong> — 16 of them explicitly. Each
+      waits on a human click; nothing is suppressed automatically. The 48
+      unclassified are threads the model never reached, see §6.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================= SYNC -->
+<section>
+  <h2>4 · How the reply sync works</h2>
+
+  <p>
+    Replies are <strong>mirrored, not fetched on demand</strong>. The source is an
+    undocumented endpoint behind a browser session: far too slow and too fragile
+    to sit in a page render. The tab reads the local mirror; the sync refreshes it.
+  </p>
+
+  <figure class="keep">
+    <div class="fig-title">One sync run</div>
+    <div class="fig-sub">Roughly 750 round trips · about 10 minutes for the full inbox</div>
+    <svg viewBox="0 0 700 320" width="100%" role="img"
+         aria-label="Sequence diagram of the reply sync: attach to browser, page the opportunity list, fetch each thread, upsert locally, then refresh answered threads.">
+      <style>
+        .sbx { fill:#fcfcfb; stroke:#0b0b0b; stroke-width:1.4; }
+        .st  { font: 600 10px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .sd  { font: 9px "Segoe UI", sans-serif; fill:#52514e; }
+        .sn  { font: 8.3px "Segoe UI", sans-serif; fill:#7a7975; }
+        .num { font: 600 10px "Segoe UI", sans-serif; fill:#fcfcfb; }
+      </style>
+
+      <g>
+        <circle cx="22" cy="30" r="11" fill="#2a78d6"/><text class="num" x="22" y="34" text-anchor="middle">1</text>
+        <rect class="sbx" x="44" y="12" width="640" height="38" rx="5"/>
+        <text class="st" x="58" y="30">Attach to the signed-in browser</text>
+        <text class="sd" x="58" y="44">Playwright connects over CDP on :9222 and finds the QuickMail tab. No password is stored.</text>
+      </g>
+      <g>
+        <circle cx="22" cy="88" r="11" fill="#2a78d6"/><text class="num" x="22" y="92" text-anchor="middle">2</text>
+        <rect class="sbx" x="44" y="70" width="640" height="38" rx="5"/>
+        <text class="st" x="58" y="88">Page the thread list</text>
+        <text class="sd" x="58" y="102">30 per page — the API ignores a larger page size, so paging is explicit. 374 threads total.</text>
+      </g>
+      <g>
+        <circle cx="22" cy="146" r="11" fill="#2a78d6"/><text class="num" x="22" y="150" text-anchor="middle">3</text>
+        <rect class="sbx" x="44" y="128" width="640" height="38" rx="5"/>
+        <text class="st" x="58" y="146">Fetch each thread in full</text>
+        <text class="sd" x="58" y="160">One request per thread: every message, both directions, with HTML bodies and headers.</text>
+      </g>
+      <g>
+        <circle cx="22" cy="204" r="11" fill="#2a78d6"/><text class="num" x="22" y="208" text-anchor="middle">4</text>
+        <rect class="sbx" x="44" y="186" width="640" height="38" rx="5"/>
+        <text class="st" x="58" y="204">Upsert locally, one thread at a time</text>
+        <text class="sd" x="58" y="218">Committed as it goes, so a failure at thread 240 keeps the first 239. Never overwrites a human decision.</text>
+      </g>
+      <g>
+        <circle cx="22" cy="262" r="11" fill="#2a78d6"/><text class="num" x="22" y="266" text-anchor="middle">5</text>
+        <rect class="sbx" x="44" y="244" width="640" height="38" rx="5"/>
+        <text class="st" x="58" y="262">Re-read answered threads</text>
+        <text class="sd" x="58" y="276">Replying moves a thread out of QuickMail's active scope — without this the mirror freezes on the ones you acted on.</text>
+      </g>
+      <text class="sn" x="44" y="302">Read-only against QuickMail throughout. Connection failures retry four times; a GraphQL error surfaces immediately.</text>
+    </svg>
+  </figure>
+
+  <h3>Two ways to run it</h3>
+  <table>
+    <thead><tr><th style="width:30%">Route</th><th style="width:18%">Scope</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Sync replies</strong> button</td><td>newest 30 · ~40s</td><td>Day to day, from the Replies tab.</td></tr>
+      <tr><td><code>npm run sync-replies -- --limit=400</code></td><td>everything · ~10min</td><td>Backfill, or after a long gap.</td></tr>
+    </tbody>
+  </table>
+  <p class="small muted">
+    Both call the same code. Two implementations would eventually disagree about
+    what "synced" means.
+  </p>
+
+  <h3>What the sync will not do</h3>
+  <ul>
+    <li><strong>Never suppresses anyone.</strong> QuickMail's do-not-contact flag is mirrored and blocks the Send button, but barring an address is a human decision.</li>
+    <li><strong>Never overwrites a handled thread.</strong> A re-sync cannot resurrect something already dealt with.</li>
+    <li><strong>Never overwrites our classification</strong> with QuickMail's <code>null</code> — an early version did, and the tone filters silently emptied after every run.</li>
+  </ul>
+</section>
+
+<!-- ======================================================= CHALLENGES -->
+<section>
+  <h2>5 · What went wrong, and what we did</h2>
+
+  <p>
+    Most of these share a shape: <strong>the API accepted the request and reported
+    success, while doing nothing.</strong> That failure mode drove almost every
+    design decision in the project.
+  </p>
+
+  <h3>Silent failures in the public API</h3>
+  <table>
+    <thead><tr><th style="width:36%">Symptom</th><th>Cause and fix</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>A campaign went live and sent nothing</td>
+        <td>A sequence ending on an email step accepts leads and never sends. Every sequence now ends on a wait step.</td>
+      </tr>
+      <tr>
+        <td>7 of 17 mailboxes vanished from the app</td>
+        <td><code>first: 100</code> is silently capped at 10 on several collections. Our sync read 10, assumed the rest were deleted, and removed them. Fixed with real paging and a skip-delete guard.</td>
+      </tr>
+      <tr>
+        <td>Campaign had no sending window</td>
+        <td><code>updateCampaignAutomation</code> rejects a display time-zone label and accepts only IANA. The rejection was non-fatal, so creation "succeeded".</td>
+      </tr>
+      <tr>
+        <td>Prospects received <code>{{firstName}}</code> literally</td>
+        <td>Only two merge tags actually resolve, and bodies must be HTML. Tags are now mapped and unknown ones flagged rather than stripped.</td>
+      </tr>
+      <tr>
+        <td>Campaign attached to a dead mailbox</td>
+        <td>A de-authorised mailbox attaches happily and sends nothing. The <code>authorized</code> flag is synced and blocks creation.</td>
+      </tr>
+      <tr>
+        <td>Going live refused with no error</td>
+        <td>The plan caps live campaigns at 20. The refusal arrives as HTTP 200 with an <code>error</code> field, so it read as success.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The wall: no replies, no sending, no trigger</h3>
+  <p>
+    Three capabilities the product needed are absent from every public API. We
+    verified this rather than assuming it — the probe scripts are in the repo so
+    the conclusion can be re-checked, not just trusted.
+  </p>
+  <table>
+    <thead><tr><th style="width:26%">Needed</th><th style="width:30%">Public API</th><th>What we did</th></tr></thead>
+    <tbody>
+      <tr><td>Read reply content</td><td>Counts only, no bodies</td><td>Read QuickMail's own operation out of their JS bundle; call it through the signed-in browser.</td></tr>
+      <tr><td>Send a reply</td><td>No send mutation exists</td><td><code>replyToEmail</code> via the same session — threaded, from the receiving mailbox.</td></tr>
+      <tr><td>Set trigger &amp; go live</td><td>No trigger field at all</td><td>Playwright clicks the real UI, then verifies through the API afterwards.</td></tr>
+      <tr><td>Stop a prospect's sequence</td><td>Not exposed</td><td><code>setProspectsAsDoNotContact</code> + <code>cancelProspects</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>Why not scrape the UI for everything?</strong> Because clicking is
+    fragile and slow. We use the browser only for the <em>session</em>, and issue
+    real GraphQL calls inside it. Clicking is reserved for the two things with no
+    operation at all — the trigger and the live toggle.
+  </div>
+
+  <h3>Browser automation, and its own problems</h3>
+  <ul>
+    <li><strong>Introspection is disabled</strong> on the internal endpoint, so input shapes had to be read from the call sites that build them — not guessed, and not learned by pressing Send and watching what fired, which would have emailed a real prospect.</li>
+    <li><strong>Edge ignores <code>--remote-debugging-port</code></strong> if any instance is already running, and blocks it on the implicit default profile. Every session needs a full restart with an explicit profile path.</li>
+    <li><strong>Angular pre-renders hidden popovers</strong>, so selectors matched invisible duplicates. Every selector is <code>:visible</code>-scoped.</li>
+    <li><strong>Answered threads leave the active scope</strong>, so the mirror froze on exactly the threads someone had acted on. The send path now re-reads its own thread immediately.</li>
+    <li><strong>A dropped connection killed a ten-minute sync</strong> at thread 240. Transport failures now retry; GraphQL errors still surface at once, because retrying those could send a second email.</li>
+  </ul>
+
+  <h3>Data quality traps</h3>
+  <ul>
+    <li>QuickMail's <code>content</code> field is <em>not</em> plain text — it is a full Outlook document, and its own extraction drops content: a reply signed <code>Best,&lt;br&gt;Amelia</code> came back as <code>&lt;br&gt;Amelia</code>. We parse the HTML body instead.</li>
+    <li>Names and subjects arrive entity-encoded — <code>O&amp;#x27;Connor</code> rendered literally until decoded on the way in.</li>
+    <li>Quoted history is stripped before display and before drafting; otherwise the model answers a message from three weeks ago.</li>
+  </ul>
+</section>
+
+<!-- =============================================================== AI -->
+<section>
+  <h2>6 · The AI layer, honestly</h2>
+
+  <p>
+    AI is used for three things: classifying inbound replies, drafting answers,
+    and turning a brief into a campaign spec. Each task picks its own provider,
+    so one dead key degrades one feature rather than all of them.
+  </p>
+
+  <div class="callout warn">
+    <strong>No AI provider is currently reachable.</strong> The Gemini quota is
+    exhausted, <code>ANTHROPIC_API_KEY</code> is an empty placeholder, and Ollama
+    is not running. Every classification in the inbox today comes from the
+    offline rule-based classifier — which is why making that classifier good
+    mattered more than tuning a prompt.
+  </div>
+
+  <figure class="keep">
+    <div class="fig-title">Offline classifier accuracy</div>
+    <div class="fig-sub">46 real replies from this account, labelled by reading them</div>
+    <svg viewBox="0 0 700 120" width="100%" role="img"
+         aria-label="Bar chart: classifier accuracy improved from 65 percent to 100 percent on 46 labelled real replies.">
+      <style>
+        .al { font: 10px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .av { font: 600 12px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .as { font: 8.5px "Segoe UI", sans-serif; fill:#7a7975; }
+      </style>
+      <text class="al" x="0" y="28">Keyword matching</text>
+      <rect x="150" y="16" width="357" height="16" rx="4" fill="#c9c8c3"/>
+      <text class="av" x="515" y="29">65%</text>
+      <text class="as" x="0" y="42">the original</text>
+
+      <text class="al" x="0" y="80">Phrase rules + negation</text>
+      <rect x="150" y="68" width="550" height="16" rx="4" fill="#2a78d6"/>
+      <text class="av" x="660" y="81" fill="#fcfcfb" text-anchor="end">100%</text>
+      <text class="as" x="0" y="94">current</text>
+
+      <line x1="150" y1="106" x2="700" y2="106" stroke="#dcdbd6"/>
+      <text class="as" x="150" y="117">0%</text>
+      <text class="as" x="700" y="117" text-anchor="end">100%</text>
+    </svg>
+    <figcaption>
+      <code>npm run eval-classify</code> re-runs the check. Nine of the 46 cases
+      came from sampling replies the rules were <em>not</em> written against — the
+      first rewrite scored 100% on its own examples while still misreading
+      "no longer with Balboa Retail Partners".
+    </figcaption>
+  </figure>
+
+  <h3>What actually moved the number</h3>
+  <table>
+    <thead><tr><th style="width:34%">Problem</th><th>Example that exposed it</th></tr></thead>
+    <tbody>
+      <tr><td>Curly apostrophes</td><td>Outlook autocorrects <code>'</code> to <code>’</code>, so every pattern with a straight quote missed. "Let's connect on Friday at 5:00 pm" — with a Meet link attached — read as neutral.</td></tr>
+      <tr><td>Single keywords</td><td><code>book</code> matched "we already booked a vendor"; <code>remove</code> matched "remove the broken link"; <code>no need</code> matched "no need for pricing details in the first message".</td></tr>
+      <tr><td>Order of checks</td><td>"Not interested, please remove me from your list" is both a rejection and an opt-out. The opt-out is the one with legal weight, so it is settled first.</td></tr>
+      <tr><td>Deferral treated as rejection</td><td>"Try me again next quarter" is a maybe. Suppressing it discards a live prospect.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">
+    Every offline verdict says so in its own reasoning field, rather than passing
+    itself off as an AI judgement.
+  </p>
+</section>
+
+<!-- ========================================================= APPROVALS -->
+<section>
+  <h2>7 · The gate — and the number that matters</h2>
+
+  <p>
+    Two actions leave the building: sending a reply, and barring an address.
+    Neither happens on one click, and neither happens automatically.
+  </p>
+
+  <table>
+    <thead><tr><th style="width:22%">Action</th><th style="width:34%">What it does</th><th>Gate</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Send reply</td>
+        <td>Real email, threaded, from the mailbox that received it.</td>
+        <td>Panel restating mailbox, recipient, subject and full body. Blocked if suppressed or do-not-contact.</td>
+      </tr>
+      <tr>
+        <td>Stop emailing</td>
+        <td>Bars locally, marks do-not-contact in QuickMail, cancels the in-flight sequence.</td>
+        <td>Panel spelling out that it spans every campaign and is not undoable from that screen.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">
+    Both write an audit record of who approved what.
+    <code>npm run unstop</code> is the escape hatch — it clears QuickMail first
+    and only then local state, the opposite order to stopping, because the safe
+    failure runs the other way.
+  </p>
+
+  <h3>Deliverability is the real problem</h3>
+
+  <div class="stat-row">
+    <div class="stat"><div class="n">401,428</div><div class="l">emails sent</div></div>
+    <div class="stat"><div class="n">42,339</div><div class="l">bounced</div><div class="d" style="color:var(--critical)">10.5% overall</div></div>
+    <div class="stat"><div class="n">258</div><div class="l">replies recorded</div></div>
+    <div class="stat"><div class="n">9</div><div class="l">addresses suppressed</div><div class="d" style="color:var(--critical)">far too few</div></div>
+  </div>
+
+  <figure class="keep">
+    <div class="fig-title">Worst campaigns by bounce rate</div>
+    <div class="fig-sub">Campaigns with more than 100 sends · 5% is the accepted ceiling</div>
+    <svg viewBox="0 0 700 220" width="100%" role="img"
+         aria-label="Bar chart of bounce rates for the six worst campaigns, ranging from 36 to 80.8 percent, all far above the 5 percent threshold.">
+      <style>
+        .bl { font: 9px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .bv { font: 600 10px "Segoe UI", sans-serif; fill:#0b0b0b; }
+        .bs { font: 8.3px "Segoe UI", sans-serif; fill:#7a7975; }
+      </style>
+      <!-- scale 0-100% -> 460px from x=210 -->
+      <line x1="233" y1="8" x2="233" y2="182" stroke="#d03b3b" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <text class="bs" x="237" y="195" fill="#d03b3b">5% ceiling</text>
+
+      <text class="bl" x="0" y="22">AI Lead Generation (B)</text>
+      <rect x="210" y="12" width="372" height="14" rx="4" fill="#e34948"/>
+      <text class="bv" x="590" y="23">80.8%</text>
+
+      <text class="bl" x="0" y="50">AI Lead Generation (B_)</text>
+      <rect x="210" y="40" width="362" height="14" rx="4" fill="#e34948"/>
+      <text class="bv" x="580" y="51">78.6%</text>
+
+      <text class="bl" x="0" y="78">AI Voice Agents (BM_WE)</text>
+      <rect x="210" y="68" width="350" height="14" rx="4" fill="#e34948"/>
+      <text class="bv" x="568" y="79">76.0%</text>
+
+      <text class="bl" x="0" y="106">AI Voice Agents (BM_PE)</text>
+      <rect x="210" y="96" width="299" height="14" rx="4" fill="#e34948"/>
+      <text class="bv" x="517" y="107">65.0%</text>
+
+      <text class="bl" x="0" y="134">Lease Abstraction 02 Dec</text>
+      <rect x="210" y="124" width="188" height="14" rx="4" fill="#e34948"/>
+      <text class="bv" x="406" y="135">40.9%</text>
+
+      <text class="bl" x="0" y="162">Lease Abstraction 19 Nov</text>
+      <rect x="210" y="152" width="166" height="14" rx="4" fill="#e34948"/>
+      <text class="bv" x="384" y="163">36.0%</text>
+
+      <line x1="210" y1="182" x2="670" y2="182" stroke="#dcdbd6"/>
+      <text class="bs" x="210" y="195">0%</text>
+      <text class="bs" x="670" y="195" text-anchor="end">100%</text>
+    </svg>
+    <figcaption>
+      Sending to lists this bad burns the sending domains for every other
+      campaign. The suppression list — 9 entries against 42,339 bounce events —
+      is the gap: a bounce export from QuickMail would seed it properly.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- =========================================================== STATUS -->
+<section>
+  <h2>8 · Where it stands</h2>
+
+  <div class="two-col">
+    <div>
+      <h3 style="margin-top:0">Working and verified</h3>
+      <ul>
+        <li>Campaign creation through the v2 API, including the sequence, senders, sending window and enrolment.</li>
+        <li>Trigger and go-live via browser automation, verified through the API afterwards.</li>
+        <li>Full reply mirror — 375 threads, 1,127 messages.</li>
+        <li>Sending a real threaded reply. <strong>Confirmed end to end</strong>: a test reply reached its recipient and appears in the live thread.</li>
+        <li>Stop emailing: local suppression plus QuickMail do-not-contact and sequence cancellation, confirmed by reading the prospect back.</li>
+        <li>Search, tone filters, and a sync button in the Replies tab.</li>
+        <li>Offline classification at 100% on the labelled set.</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="margin-top:0">Open</h3>
+      <ul>
+        <li><strong>38 threads asking to stop</strong>, 16 of them explicit opt-outs, all waiting on a human click.</li>
+        <li><strong>No AI provider reachable</strong> — needs a working key or a local model.</li>
+        <li>Suppression list holds 9 entries against 42,339 bounce events; needs the CSV export.</li>
+        <li>5 of 17 mailboxes hit an HTTP 500 on sender assignment — a support ticket is drafted.</li>
+        <li>The reply webhook needs a public tunnel to be reachable from Zapier.</li>
+        <li>7 orphan campaigns from failed creation runs need manual deletion.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Dependencies worth stating out loud</h3>
+  <table>
+    <thead><tr><th style="width:32%">Dependency</th><th>Consequence if it goes</th></tr></thead>
+    <tbody>
+      <tr><td>Edge running with <code>--remote-debugging-port=9222</code>, signed in</td><td>Replies, sending and stopping all stop working. They report the reason rather than failing quietly.</td></tr>
+      <tr><td>QuickMail's internal API staying as it is</td><td>Same three features break. Campaign creation is unaffected — that uses the public API.</td></tr>
+      <tr><td>A reachable AI provider</td><td>Drafting falls back to a fixed template and classification to rules. Both say so on screen.</td></tr>
+      <tr><td>The 20 live-campaign plan cap</td><td>New campaigns cannot go live until old ones are paused.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted" style="margin-top:18px">
+    Repository: <code>github.com/abhishek-sybrant/mail-agent</code> ·
+    18,984 lines across app, scripts and schema · 17 database migrations.
+  </p>
+</section>
+
+</body>
+</html>

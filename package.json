@@ -16,6 +16,7 @@
     "show-replies": "tsx scripts/show-replies.ts",
     "classify-replies": "tsx scripts/classify-replies.ts",
     "eval-classify": "tsx scripts/eval-classify.ts",
+    "overview-pdf": "tsx scripts/build-overview-pdf.ts",
     "unstop": "tsx scripts/unstop-prospect.ts",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
