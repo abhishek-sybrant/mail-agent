@@ -15,6 +15,7 @@
     "sync-replies": "tsx scripts/sync-replies.ts",
     "show-replies": "tsx scripts/show-replies.ts",
     "classify-replies": "tsx scripts/classify-replies.ts",
+    "eval-classify": "tsx scripts/eval-classify.ts",
     "unstop": "tsx scripts/unstop-prospect.ts",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",

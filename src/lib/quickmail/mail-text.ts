@@ -54,6 +54,15 @@ export function htmlToText(html: string | null | undefined): string {
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    /**
+     * Non-breaking spaces become ordinary ones before blank lines collapse.
+     *
+     * Mail clients pad empty paragraphs with &nbsp;, which decodes to U+00A0 —
+     * not matched by \s in a character class of [ \t], so those lines were not
+     * "empty" and survived the collapse below. Real replies rendered with ten
+     * blank lines between one word and the signature.
+     */
+    .replace(/ /g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
