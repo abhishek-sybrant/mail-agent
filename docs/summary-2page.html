@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI SDR Dashboard — what we added to QuickMail</title>
+<style>
+  @page { size: A4; margin: 12mm 11mm; }
+
+  :root {
+    --ink:      #0b0b0b;
+    --ink-2:    #4a4946;
+    --ink-3:    #78776f;
+    --rule:     #dedcd6;
+    --rule-2:   #efeeea;
+    --sunk:     #f6f5f2;
+    --accent:   #2a78d6;
+    --absent:   #c0392f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 8.4pt;
+    line-height: 1.42;
+    color: var(--ink);
+  }
+
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  /* ------------------------------------------------------------- header */
+  .masthead {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    border-bottom: 2.5px solid var(--ink); padding-bottom: 7px; margin-bottom: 12px;
+  }
+  .masthead h1 { font-size: 17pt; margin: 0; letter-spacing: -0.4pt; line-height: 1.1; }
+  .masthead .sub { font-size: 8.2pt; color: var(--ink-2); margin-top: 3px; max-width: 118mm; }
+  .masthead .rhs { text-align: right; font-size: 7.4pt; color: var(--ink-3); line-height: 1.5; }
+
+  h2 {
+    font-size: 9.6pt; margin: 0 0 5px; letter-spacing: 0.2pt;
+    display: flex; align-items: baseline; gap: 7px;
+  }
+  h2 .n {
+    font-size: 7pt; color: #fff; background: var(--ink);
+    border-radius: 2px; padding: 1px 5px; letter-spacing: 0.4pt;
+  }
+  h2 .hint { font-size: 7.6pt; font-weight: 400; color: var(--ink-3); }
+
+  .block { margin-bottom: 11px; }
+
+  /* ------------------------------------------------------------- tables */
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    font-size: 6.7pt; text-transform: uppercase; letter-spacing: 0.6pt;
+    color: var(--ink-3); text-align: left; font-weight: 600;
+    border-bottom: 1.2px solid var(--ink); padding: 0 6px 3px 0;
+  }
+  td {
+    padding: 4px 6px 4px 0; border-bottom: 1px solid var(--rule-2);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: 1px solid var(--rule); }
+  td.k { font-weight: 600; }
+  td .note { color: var(--ink-3); font-size: 7.4pt; display: block; line-height: 1.35; }
+
+  code {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 7.2pt; background: var(--sunk); padding: 0 3px; border-radius: 2px;
+  }
+
+  /* --------------------------------------------------------------- tags */
+  .t {
+    display: inline-block; font-size: 6.6pt; letter-spacing: 0.3pt;
+    padding: 1.5px 5px; border-radius: 8px; border: 1px solid var(--rule);
+    color: var(--ink-2); white-space: nowrap; font-weight: 600;
+  }
+  .t-api  { border-color: var(--accent); color: var(--accent); }
+  .t-sess { border-color: var(--ink-2);  color: var(--ink-2); }
+  .t-ui   { border-color: var(--absent); color: var(--absent); }
+  .t-app  { border-color: var(--ink); color: #fff; background: var(--ink); }
+  .t-no   { border-color: var(--absent); color: var(--absent); }
+  .t-yes  { border-color: var(--rule); color: var(--ink-3); }
+
+  .key { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0 0; font-size: 7.2pt; color: var(--ink-3); }
+  .key span { display: inline-flex; align-items: center; gap: 5px; }
+
+  /* -------------------------------------------------------------- stats */
+  .strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 10px 0 12px; }
+  .strip div { border-top: 2px solid var(--ink); padding-top: 5px; }
+  .strip .n { font-size: 12pt; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .strip .l { font-size: 6.9pt; color: var(--ink-3); line-height: 1.3; }
+
+  .note-bar {
+    border-left: 2.5px solid var(--ink); background: var(--sunk);
+    padding: 6px 9px; font-size: 7.7pt; line-height: 1.45;
+  }
+  .note-bar.warn { border-left-color: var(--absent); }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .foot { margin-top: 10px; font-size: 7pt; color: var(--ink-3); }
+</style>
+</head>
+<body>
+
+<!-- ==================================================== PAGE 1 -->
+<div class="page">
+
+  <div class="masthead">
+    <div>
+      <h1>What the AI SDR Dashboard adds to QuickMail</h1>
+      <div class="sub">
+        QuickMail sends the mail. This app decides what gets sent, catches what
+        comes back, and puts a person in front of anything irreversible.
+      </div>
+    </div>
+    <div class="rhs">
+      Sybrant · workspace 54552<br>
+      7 August 2026
+    </div>
+  </div>
+
+  <div class="strip">
+    <div><div class="n">50,546</div><div class="l">leads mirrored</div></div>
+    <div><div class="n">359</div><div class="l">campaigns tracked</div></div>
+    <div><div class="n">375</div><div class="l">reply threads</div></div>
+    <div><div class="n">17</div><div class="l">sending mailboxes</div></div>
+    <div><div class="n">401k</div><div class="l">emails sent to date</div></div>
+    <div><div class="n">10.5%</div><div class="l">bounce rate — the problem</div></div>
+  </div>
+
+  <div class="block">
+    <h2><span class="n">1</span> What QuickMail already does <span class="hint">and how much of it the API will let us touch</span></h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:20%">QuickMail feature</th>
+          <th style="width:15%">In the public API?</th>
+          <th style="width:11%">We use it</th>
+          <th>What we do with it</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="k">Campaigns &amp; sequences</td>
+          <td><span class="t t-api">yes — 24 mutations</span></td>
+          <td><span class="t t-yes">yes</span></td>
+          <td>Build the whole campaign from the app: steps, waits, senders, sending window, enrolment.</td>
+        </tr>
+        <tr>
+          <td class="k">Prospects / leads</td>
+          <td><span class="t t-api">yes</span></td>
+          <td><span class="t t-yes">yes</span></td>
+          <td>50,546 mirrored locally so search and suppression work without hitting the rate limit.</td>
+        </tr>
+        <tr>
+          <td class="k">Mailboxes &amp; inbox rotation</td>
+          <td><span class="t t-api">yes</span></td>
+          <td><span class="t t-yes">yes</span></td>
+          <td>17 accounts with the <code>authorized</code> flag — a de-authorised sender is otherwise invisible.</td>
+        </tr>
+        <tr>
+          <td class="k">Delivery analytics</td>
+          <td><span class="t t-api">yes</span></td>
+          <td><span class="t t-yes">yes</span></td>
+          <td>Sent, delivered, opens, clicks, replies, bounces per campaign.</td>
+        </tr>
+        <tr>
+          <td class="k">Reply inbox ("Opportunities")</td>
+          <td><span class="t t-no">counts only</span></td>
+          <td><span class="t t-sess">session</span></td>
+          <td>The API returns reply <em>totals</em> and no message body. Read through the signed-in browser instead.</td>
+        </tr>
+        <tr>
+          <td class="k">Sending / replying</td>
+          <td><span class="t t-no">absent</span></td>
+          <td><span class="t t-sess">session</span></td>
+          <td>No send mutation exists on any public API.</td>
+        </tr>
+        <tr>
+          <td class="k">Trigger &amp; go-live</td>
+          <td><span class="t t-no">absent</span></td>
+          <td><span class="t t-ui">UI clicks</span></td>
+          <td>No trigger field at all; <code>paused</code> is writable on steps but never on a campaign.</td>
+        </tr>
+        <tr>
+          <td class="k">Do-not-contact</td>
+          <td><span class="t t-no">absent</span></td>
+          <td><span class="t t-sess">session</span></td>
+          <td>Set through their internal operation, together with cancelling the running sequence.</td>
+        </tr>
+        <tr>
+          <td class="k">Warm-up &amp; deliverability tooling</td>
+          <td><span class="t t-no">absent</span></td>
+          <td><span class="t t-yes">—</span></td>
+          <td>Stays entirely inside QuickMail. We only read the damage it is meant to prevent.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="key">
+      <span><b class="t t-api">API</b> public v2 GraphQL, API key</span>
+      <span><b class="t t-sess">session</b> their internal API, called inside the signed-in browser</span>
+      <span><b class="t t-ui">UI clicks</b> Playwright driving the real interface</span>
+      <span><b class="t t-no">absent</b> not available on any public API</span>
+    </div>
+  </div>
+
+  <div class="block">
+    <h2><span class="n">2</span> The four things QuickMail's API cannot do <span class="hint">and how each was solved</span></h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:19%">Needed</th>
+          <th style="width:17%">Why the API can't</th>
+          <th style="width:13%">Route taken</th>
+          <th>How it works, and what it cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="k">Read reply content</td>
+          <td>13 queries, none carry a message body</td>
+          <td><span class="t t-sess">session</span></td>
+          <td>Their own operation, read out of QuickMail's JavaScript bundle and replayed inside the signed-in page. 374 threads, 1,127 messages.</td>
+        </tr>
+        <tr>
+          <td class="k">Send a reply</td>
+          <td>no send mutation exists</td>
+          <td><span class="t t-sess">session</span></td>
+          <td><code>replyToEmail</code> — threaded onto the original message, from the mailbox that received it. <b>Verified end to end</b> with a real send.</td>
+        </tr>
+        <tr>
+          <td class="k">Set trigger, go live</td>
+          <td>no trigger field; no campaign-level pause</td>
+          <td><span class="t t-ui">UI clicks</span></td>
+          <td>Playwright fills leads/day, days and time, then flips Paused → Live and handles the warnings dialog. Verified through the API afterwards.</td>
+        </tr>
+        <tr>
+          <td class="k">Stop a person's sequence</td>
+          <td>not exposed</td>
+          <td><span class="t t-sess">session</span></td>
+          <td><code>setProspectsAsDoNotContact</code> plus <code>cancelProspects</code> — one blocks future enrolment, the other kills what is already queued.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note-bar" style="margin-top:8px">
+      <b>Why not just script the whole UI?</b> Clicking is slow and breaks on every
+      redesign. The browser is used for the <b>session</b>, and real API calls are
+      issued inside it. Clicking is reserved for the two controls that have no
+      operation behind them at all — the trigger and the live toggle.
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================================================== PAGE 2 -->
+<div class="page">
+
+  <div class="masthead">
+    <div>
+      <h1>Built on top — things QuickMail has no concept of</h1>
+      <div class="sub">
+        Everything below exists only in this app. None of it is a QuickMail
+        feature we are re-exposing.
+      </div>
+    </div>
+    <div class="rhs">page 2 of 2</div>
+  </div>
+
+  <div class="block">
+    <h2><span class="n">3</span> Additions <span class="hint">the reason the app exists rather than using QuickMail directly</span></h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:21%">Addition</th>
+          <th style="width:22%">QuickMail equivalent</th>
+          <th>What it gives us</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="k">Human approval gate</td>
+          <td>none — actions are immediate</td>
+          <td>Sending a reply and barring an address each stop at a panel restating exactly what will happen. Both write an audit record of who approved what.</td>
+        </tr>
+        <tr>
+          <td class="k">Suppression list</td>
+          <td>per-prospect do-not-contact</td>
+          <td>Keyed on the <em>address</em>, not the prospect row, so re-importing a spreadsheet cannot resurrect someone who asked to stop. Blocks enrolment before it ever reaches QuickMail.</td>
+        </tr>
+        <tr>
+          <td class="k">Reply classification</td>
+          <td>returns <code>null</code> on nearly every thread</td>
+          <td>Six-way sentiment on every reply, so 375 threads narrow to the 138 worth a person's time. Accuracy is measured, not asserted — 46 labelled real replies, 65% → 100%.</td>
+        </tr>
+        <tr>
+          <td class="k">AI reply drafting</td>
+          <td>none</td>
+          <td>A draft per thread, signed as the mailbox owner, with the quoted history stripped so the model answers the newest message rather than one from three weeks ago.</td>
+        </tr>
+        <tr>
+          <td class="k">Campaign agent</td>
+          <td>none</td>
+          <td>Turns a written brief into a full campaign spec — audience, sequence, copy, sending window — then builds it through the API.</td>
+        </tr>
+        <tr>
+          <td class="k">Campaign scheduling</td>
+          <td>no start or end date exists</td>
+          <td>A scheduler pauses and unpauses each email variation to enforce a window QuickMail has no field for.</td>
+        </tr>
+        <tr>
+          <td class="k">Pre-send guards</td>
+          <td>none</td>
+          <td>Dead-mailbox check, merge-tag validation, suppression gate, and a trailing wait step — each one added after a campaign silently sent nothing.</td>
+        </tr>
+        <tr>
+          <td class="k">Full-text reply search</td>
+          <td>subject and sender only</td>
+          <td>Searches the message body too — "the one who asked about pricing" is a likelier search than a name.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="block">
+    <h2><span class="n">4</span> What each capability actually runs on</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:22%">Capability</th>
+          <th style="width:16%">Mechanism</th>
+          <th style="width:20%">Depends on</th>
+          <th>If the dependency goes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="k">Build &amp; enrol a campaign</td>
+          <td><span class="t t-api">API</span></td>
+          <td>API key</td>
+          <td>Unaffected by browser or AI outages. This is the stable path.</td>
+        </tr>
+        <tr>
+          <td class="k">Trigger &amp; go live</td>
+          <td><span class="t t-ui">UI clicks</span></td>
+          <td>Edge on the debug port, signed in</td>
+          <td>Falls back to written manual steps; the campaign is still built.</td>
+        </tr>
+        <tr>
+          <td class="k">Read, send, stop replies</td>
+          <td><span class="t t-sess">session</span></td>
+          <td>Same browser + QuickMail's internal API</td>
+          <td>Reports the reason and stops. Nothing sends silently.</td>
+        </tr>
+        <tr>
+          <td class="k">Classify &amp; draft</td>
+          <td><span class="t t-app">this app</span></td>
+          <td>An AI provider — <b>none reachable today</b></td>
+          <td>Classification falls to measured rules; drafting to a template. Both say so on screen.</td>
+        </tr>
+        <tr>
+          <td class="k">Approvals, suppression, audit</td>
+          <td><span class="t t-app">this app</span></td>
+          <td>local database only</td>
+          <td>No external dependency at all.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h2><span class="n">5</span> Proven</h2>
+      <table>
+        <tbody>
+          <tr><td>Campaign built and launched through the app, end to end</td></tr>
+          <tr><td>Real reply sent and confirmed in the live thread</td></tr>
+          <tr><td>Stop verified — do-not-contact read back from QuickMail</td></tr>
+          <tr><td>All 374 reply threads mirrored, 1,127 messages</td></tr>
+          <tr><td>Classifier at 100% on 46 labelled real replies</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h2><span class="n">6</span> Needs a decision</h2>
+      <table>
+        <tbody>
+          <tr><td><b>38 people asked to stop</b> — 16 explicitly — all awaiting a click</td></tr>
+          <tr><td><b>No AI provider funded</b> — quota exhausted, no Claude key</td></tr>
+          <tr><td><b>10.5% bounce rate</b>; worst campaign 80.8% against a 5% ceiling</td></tr>
+          <tr><td>Suppression list holds 9 entries against 42,339 bounces</td></tr>
+          <tr><td>5 of 17 mailboxes fail sender assignment — support ticket drafted</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="note-bar warn" style="margin-top:10px">
+    <b>The standing risk, stated plainly.</b> Reading replies, sending them and
+    stopping a prospect all depend on QuickMail's own internal API, which is
+    undocumented and can change without notice. Campaign creation does not — that
+    uses the published API and is unaffected. Everything built on the internal
+    route fails loudly rather than quietly.
+  </div>
+
+  <div class="foot">
+    AI SDR Dashboard · Next.js 16 · Prisma 7 · Playwright over CDP ·
+    <code>github.com/abhishek-sybrant/mail-agent</code>
+  </div>
+
+</div>
+
+</body>
+</html>
