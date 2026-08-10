@@ -90,11 +90,19 @@ export function StoppedList({
     if (!v) return;
     try {
       const json = await post({ action: "block", value: v }, "block");
-      toast.success(
-        json.scope === "domain"
-          ? `@${json.domain} blocked — covers ${json.leadsAffected} known lead${json.leadsAffected === 1 ? "" : "s"}.`
-          : `${json.email} will never be emailed again.`,
-      );
+      if (json.scope !== "domain") {
+        toast.success(`${json.email} will never be emailed again.`);
+      } else if (json.inQuickMail) {
+        toast.success(
+          `@${json.domain} blocked here and in QuickMail — covers ${json.leadsAffected} known lead${json.leadsAffected === 1 ? "" : "s"}.`,
+        );
+      } else {
+        // Say which half worked. "Blocked" alone would imply QuickMail's own
+        // sequences had stopped when they may not have.
+        toast.warning(
+          `@${json.domain} blocked here, but not in QuickMail: ${json.quickmail ?? "unknown reason"}.`,
+        );
+      }
       setValue("");
       startTransition(() => router.refresh());
     } catch (error) {
@@ -104,12 +112,18 @@ export function StoppedList({
 
   async function unblock(item: BlockedItem) {
     try {
-      await post({ action: "unblock", value: item.value }, item.id);
-      toast.success(
-        item.kind === "domain"
-          ? `@${item.value} can be emailed again.`
-          : `${item.value} can be emailed again.`,
-      );
+      const json = await post({ action: "unblock", value: item.value }, item.id);
+      if (item.kind === "domain" && json.quickmail) {
+        toast.warning(
+          `@${item.value} unblocked here, but not in QuickMail: ${json.quickmail}.`,
+        );
+      } else {
+        toast.success(
+          item.kind === "domain"
+            ? `@${item.value} can be emailed again, here and in QuickMail.`
+            : `${item.value} can be emailed again.`,
+        );
+      }
       startTransition(() => router.refresh());
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed");

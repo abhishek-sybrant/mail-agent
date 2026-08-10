@@ -413,9 +413,14 @@ function ThreadCard({
          * running would be the exact failure this whole screen exists to avoid.
          */
         const qm = json.quickmail;
-        if (json.domain) {
+        if (json.domain?.inQuickMail) {
           toast.success(
-            `@${json.domain.domain} blocked — covers ${json.domain.leadsAffected} known lead${json.domain.leadsAffected === 1 ? "" : "s"} and any new one.`,
+            `@${json.domain.domain} blocked here and in QuickMail — covers ${json.domain.leadsAffected} known lead${json.domain.leadsAffected === 1 ? "" : "s"} and any new one.`,
+          );
+        } else if (json.domain) {
+          // Half-applied is not "blocked". Their sequences may still be running.
+          toast.warning(
+            `@${json.domain.domain} blocked here, but not in QuickMail: ${json.domain_error ?? "unknown reason"}.`,
           );
         } else if (qm?.dryRun) {
           toast.warning(

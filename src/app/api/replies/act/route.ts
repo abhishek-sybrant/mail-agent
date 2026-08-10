@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { suppress, suppressDomain } from "@/lib/suppression";
 import { stopProspect, withSession, type StopResult } from "@/lib/quickmail/inbox";
+import { addDncDomain } from "@/lib/quickmail/dnc";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
 /**
@@ -46,7 +47,12 @@ export async function POST(request: Request) {
   }
 
   let suppressed: { email: string; hits: number } | null = null;
-  let domainBlocked: { domain: string; leadsAffected: number } | null = null;
+  let domainBlocked: {
+    domain: string;
+    leadsAffected: number;
+    inQuickMail: boolean;
+  } | null = null;
+  let quickmailDomainError: string | null = null;
   let quickmail: StopResult | null = null;
 
   if (action === "stop") {
@@ -83,7 +89,18 @@ export async function POST(request: Request) {
         source: "reply-review",
         note: `Blocked from a reply by ${email}`,
       });
-      domainBlocked = { domain: d.domain, leadsAffected: d.leadsAffected };
+      domainBlocked = { domain: d.domain, leadsAffected: d.leadsAffected, inQuickMail: false };
+
+      // Push it to QuickMail's own do-not-contact domain list, so their
+      // sequences stop too rather than only ours.
+      try {
+        const r = await withSession((s) => addDncDomain(s, d.domain));
+        domainBlocked.inQuickMail = r.ok;
+        if (r.error) quickmailDomainError = r.error;
+      } catch (error) {
+        quickmailDomainError =
+          error instanceof Error ? error.message : "QuickMail unreachable";
+      }
     }
 
     /**
@@ -177,6 +194,7 @@ export async function POST(request: Request) {
     conversation: { id: updated.id, handled_action: updated.handled_action },
     suppressed,
     domain: domainBlocked,
+    domain_error: quickmailDomainError,
     quickmail,
   });
 }

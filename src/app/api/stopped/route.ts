@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { suppress, suppressDomain, unsuppress } from "@/lib/suppression";
+import { domainOf, suppress, suppressDomain, unsuppress } from "@/lib/suppression";
+import { withSession } from "@/lib/quickmail/inbox";
+import { addDncDomain, removeDncDomain } from "@/lib/quickmail/dnc";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
 /**
@@ -31,7 +33,22 @@ export async function POST(request: Request) {
     if (!result.removedAddress && !result.removedDomain) {
       return NextResponse.json({ error: `${value} is not blocked` }, { status: 404 });
     }
-    return NextResponse.json({ ok: true, ...result });
+
+    // A domain is blocked in both systems, so lift it in both. Best-effort:
+    // the local list is already clear, and a QuickMail failure is reported
+    // rather than rolled back.
+    let quickmail: string | null = null;
+    if (result.removedDomain) {
+      try {
+        const r = await withSession((s) => removeDncDomain(s, domainOf(value)));
+        if (r.error) quickmail = r.error;
+        else if (r.dryRun) quickmail = "dry run — QuickMail was not changed";
+      } catch (error) {
+        quickmail = error instanceof Error ? error.message : "QuickMail unreachable";
+      }
+    }
+
+    return NextResponse.json({ ok: true, ...result, quickmail });
   }
 
   if (action !== "block") return badRequest("`action` must be block or unblock");
@@ -60,7 +77,21 @@ export async function POST(request: Request) {
         source: "manual",
         note: optionalString(parsed.data.note),
       });
-      return NextResponse.json({ ok: true, scope, ...d });
+
+      // Mirror it into QuickMail's own blocked-domain list, so sequences there
+      // stop as well. Best-effort — the local block already holds.
+      let quickmail: string | null = null;
+      let inQuickMail = false;
+      try {
+        const r = await withSession((s) => addDncDomain(s, d.domain));
+        inQuickMail = r.ok;
+        if (r.error) quickmail = r.error;
+        else if (r.dryRun) quickmail = "dry run — QuickMail was not changed";
+      } catch (error) {
+        quickmail = error instanceof Error ? error.message : "QuickMail unreachable";
+      }
+
+      return NextResponse.json({ ok: true, scope, ...d, inQuickMail, quickmail });
     }
 
     if (!value.includes("@")) {
