@@ -221,6 +221,22 @@ export async function POST(request: Request) {
     },
   });
 
+  /**
+   * The ids of everyone in this file, so the caller can enrol exactly them.
+   *
+   * Looked up by address rather than by `import_batch_id`, because a row that
+   * already existed keeps its original batch and would be missed — upload a
+   * file of two addresses where one is already known and a batch-id query
+   * returns one of the two. The user uploaded two and means two.
+   *
+   * Suppressed addresses are excluded here rather than at enrolment, so the
+   * count offered matches the count that will actually send.
+   */
+  const inFile = await prisma.lead.findMany({
+    where: { email: { in: accepted.map((a) => a.email) }, suppressed: false },
+    select: { id: true },
+  });
+
   return NextResponse.json({
     ok: true,
     dryRun: false,
@@ -229,6 +245,8 @@ export async function POST(request: Request) {
     imported: created.count,
     already_existed: accepted.length - created.count,
     suppressed_on_arrival: barred.size,
+    // Every usable address from the file — new and pre-existing alike.
+    lead_ids: inFile.map((l) => l.id),
     rejected: rejected.slice(0, 25),
   });
 }

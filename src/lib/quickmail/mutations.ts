@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/prisma";
 import { query } from "./client";
 
 /**
@@ -73,17 +74,51 @@ export type QmLeadInput = {
 };
 
 /**
+ * How many addresses are worth looking up one at a time.
+ *
+ * QuickMail's `leads` query is a text search, not a bulk lookup, so this costs
+ * one request per address — and the shared rate limiter paces requests about
+ * 1.15s apart. 500 addresses is roughly ten minutes with the HTTP request held
+ * open the whole time, which is what a stuck "Create and start sending" spinner
+ * actually was.
+ *
+ * Past this, the lookup is skipped and createLeads decides. That risks a
+ * duplicate lead record in QuickMail; ten minutes of silence is worse, and the
+ * cache below means the cost falls away as the same people are re-enrolled.
+ */
+const LOOKUP_BUDGET = 60;
+
+/**
  * Looks up which of these emails QuickMail already knows about, so we don't
  * create duplicate lead records on re-enrolment.
+ *
+ * Answers come from the local mirror first: every id learned here is written
+ * back to `Lead.quickmail_lead_id`, so a second campaign to the same people
+ * costs nothing.
  */
-export async function findExistingLeads(
-  emails: string[],
-): Promise<Map<string, string>> {
+export async function findExistingLeads(emails: string[]): Promise<{
+  found: Map<string, string>;
+  lookedUp: number;
+  skipped: number;
+}> {
+  const wanted = emails.map((e) => e.trim().toLowerCase());
   const found = new Map<string, string>();
 
-  // The leads query is a text search rather than a bulk lookup, so this walks
-  // one address at a time. Fine for the batch sizes a single campaign uses.
-  for (const email of emails) {
+  // 1 — whatever we already know, for free.
+  const cached = await prisma.lead.findMany({
+    where: { email: { in: wanted }, NOT: { quickmail_lead_id: null } },
+    select: { email: true, quickmail_lead_id: true },
+  });
+  for (const c of cached) {
+    if (c.quickmail_lead_id) found.set(c.email.toLowerCase(), c.quickmail_lead_id);
+  }
+
+  const unknown = wanted.filter((e) => !found.has(e));
+  const toLookUp = unknown.slice(0, LOOKUP_BUDGET);
+
+  // 2 — ask QuickMail about the rest, within budget.
+  const learned: { email: string; id: string }[] = [];
+  for (const email of toLookUp) {
     try {
       const data = await query<{
         leads: { nodes: { id: string; email: string }[] };
@@ -92,14 +127,28 @@ export async function findExistingLeads(
       });
 
       const hit = data.leads.nodes.find(
-        (n) => n.email.toLowerCase() === email.toLowerCase(),
+        (n) => n.email.toLowerCase() === email,
       );
-      if (hit) found.set(email.toLowerCase(), hit.id);
+      if (hit) {
+        found.set(email, hit.id);
+        learned.push({ email, id: hit.id });
+      }
     } catch {
       // A failed lookup just means we'll try to create it — createLeads is
       // the authority, and a duplicate there is better than a dropped lead.
     }
   }
 
-  return found;
+  // 3 — remember, so the next campaign to these people skips step 2 entirely.
+  for (const l of learned) {
+    await prisma.lead
+      .updateMany({ where: { email: l.email }, data: { quickmail_lead_id: l.id } })
+      .catch(() => undefined);
+  }
+
+  return {
+    found,
+    lookedUp: toLookUp.length,
+    skipped: Math.max(0, unknown.length - toLookUp.length),
+  };
 }

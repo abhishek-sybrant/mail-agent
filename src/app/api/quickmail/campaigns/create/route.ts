@@ -502,7 +502,25 @@ export async function POST(request: Request) {
     // 6 — leads: reuse QuickMail's existing records where they exist
     let enrolled = 0;
     if (qmLeads.length > 0) {
-      const existing = await findExistingLeads(qmLeads.map((l) => l.email));
+      const { found: existing, skipped } = await findExistingLeads(
+        qmLeads.map((l) => l.email),
+      );
+
+      /**
+       * Say so when the pre-flight lookup was cut short.
+       *
+       * It costs one paced request per unknown address, so it is budgeted. The
+       * consequence of skipping is a possible duplicate lead record in
+       * QuickMail — worth naming, because a silent duplicate is the kind of
+       * thing that surfaces weeks later as a double-send.
+       */
+      if (skipped > 0) {
+        warnings.push(
+          `Checked ${qmLeads.length - skipped} of ${qmLeads.length} addresses against QuickMail; ` +
+            `the other ${skipped} were created without a duplicate check to keep the request responsive.`,
+        );
+      }
+
       const toCreate = qmLeads.filter(
         (l) => !existing.has(l.email.toLowerCase()),
       );

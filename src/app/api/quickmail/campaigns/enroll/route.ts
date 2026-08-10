@@ -107,7 +107,9 @@ export async function POST(request: Request) {
     if (!workspaceId) return badRequest("No workspace available");
 
     // Reuse QuickMail's existing lead records rather than duplicating them.
-    const existing = await findExistingLeads(qmLeads.map((l) => l.email));
+    const { found: existing, skipped: unchecked } = await findExistingLeads(
+      qmLeads.map((l) => l.email),
+    );
     const toCreate = qmLeads.filter((l) => !existing.has(l.email.toLowerCase()));
 
     const createdIds: string[] = [];
@@ -138,6 +140,9 @@ export async function POST(request: Request) {
       reused: existing.size,
       created: createdIds.length,
       skipped,
+      // Addresses enrolled without a duplicate check, to keep the request from
+      // running for minutes. Reported rather than hidden.
+      unchecked,
     });
   } catch (error) {
     const message =

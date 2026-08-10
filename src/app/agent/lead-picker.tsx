@@ -311,17 +311,31 @@ function UploadSheet({ onPicked }: { onPicked: (p: PickedLeads) => void }) {
       setSummary({ valid: json.valid, invalid: json.invalid, imported: json.imported });
 
       if (!dryRun) {
-        // Pull the freshly imported batch back as concrete lead IDs.
-        const sel = await fetch("/api/leads/select", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ titles: [], limit: 500 }),
-        });
-        const selJson = await sel.json();
-        toast.success(`Imported ${json.imported} leads`);
+        /**
+         * Use the ids the upload returns — the people in this file.
+         *
+         * This used to ask /api/leads/select for a generic top-500 with no
+         * filter, which has nothing to do with the upload: it returned 500
+         * unrelated prospects ordered by intent score while the label said
+         * "1 leads imported from in.xlsx". The campaign then enrolled 500
+         * strangers, and the pre-flight lookup for them — one paced request
+         * each — held the request open for about ten minutes.
+         */
+        const ids: string[] = json.lead_ids ?? [];
+        const usable = ids.length;
+
+        toast.success(
+          usable === json.imported
+            ? `Imported ${json.imported} leads`
+            : `${usable} leads ready — ${json.imported} new, ${json.already_existed ?? 0} already known` +
+                (json.suppressed_on_arrival
+                  ? `, ${json.suppressed_on_arrival} blocked`
+                  : ""),
+        );
+
         onPicked({
-          ids: selJson.lead_ids ?? [],
-          label: `${json.imported} leads imported from ${file.name}`,
+          ids,
+          label: `${usable} lead${usable === 1 ? "" : "s"} from ${file.name}`,
         });
       } else {
         toast.success(`${json.valid} valid, ${json.invalid} rejected`);
