@@ -10,6 +10,7 @@ import {
   CircleSlash,
   Copy,
   ExternalLink,
+  Globe,
   Loader2,
   Mail,
   RefreshCw,
@@ -327,6 +328,8 @@ function ThreadCard({
    * most threads, and defaulting that to "Neutral" made every conversation
    * claim a classification nothing had actually made.
    */
+  const emailDomain = item.prospect.email.split("@").pop() ?? "";
+
   const tone = item.replyType
     ? (TONE[item.replyType] ?? TONE.NEUTRAL)
     : { label: "Unclassified", className: "text-muted-foreground border-dashed" };
@@ -385,13 +388,16 @@ function ThreadCard({
     }
   }
 
-  async function act(action: "replied" | "stop" | "ignore") {
-    setBusy(action);
+  async function act(
+    action: "replied" | "stop" | "ignore",
+    scope: "email" | "domain" = "email",
+  ) {
+    setBusy(action === "stop" && scope === "domain" ? "stopDomain" : action);
     try {
       const res = await fetch("/api/replies/act", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: item.id, action }),
+        body: JSON.stringify({ conversation_id: item.id, action, scope }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed");
@@ -407,7 +413,11 @@ function ThreadCard({
          * running would be the exact failure this whole screen exists to avoid.
          */
         const qm = json.quickmail;
-        if (qm?.dryRun) {
+        if (json.domain) {
+          toast.success(
+            `@${json.domain.domain} blocked — covers ${json.domain.leadsAffected} known lead${json.domain.leadsAffected === 1 ? "" : "s"} and any new one.`,
+          );
+        } else if (qm?.dryRun) {
           toast.warning(
             `Barred locally. Dry run — QuickMail was not told, so its sequences keep running.`,
           );
@@ -747,46 +757,76 @@ function ThreadCard({
             )}
 
             {confirm === "stop" && (
-              <div className="rounded-md border border-red-600/40 bg-red-600/5 p-4">
+              <div className="space-y-3 rounded-md border border-red-600/40 bg-red-600/5 p-4">
                 <p className="flex items-center gap-1.5 text-sm font-medium">
                   <ShieldAlert className="size-4 text-red-700" />
-                  Stop emailing {item.prospect.name ?? item.prospect.email}?
+                  How far should this go?
                 </p>
-                <p className="text-muted-foreground mt-2 text-xs">
-                  <span className="font-medium">{item.prospect.email}</span> goes on
-                  the suppression list. No campaign can email this address again,
-                  including after a fresh import, and it cannot be undone from this
-                  screen. Every other lead in{" "}
-                  {item.campaignName ? (
-                    <span className="font-medium">{item.campaignName}</span>
-                  ) : (
-                    "the campaign"
-                  )}{" "}
-                  keeps receiving mail.
-                </p>
-                <p className="text-muted-foreground mt-2 text-xs">
-                  QuickMail is told as well: the prospect is marked do-not-contact
-                  and any sequence already running for them is cancelled, so no
-                  queued follow-up goes out.
-                </p>
-                <div className="mt-3 flex gap-2">
+
+                {/*
+                  Two blocks, deliberately separate. Stopping a person answers
+                  "they asked us to leave them alone". Stopping a domain answers
+                  "nobody at this company should be contacted" — a competitor, a
+                  client, or a server that rejects everything. Same button would
+                  make the wider one an accident.
+                */}
+                <div className="bg-background rounded border p-3">
+                  <p className="text-sm font-medium">Just this person</p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    <span className="text-foreground font-medium">
+                      {item.prospect.email}
+                    </span>{" "}
+                    goes on the block list and stays there through any re-import.
+                    QuickMail is told too — marked do-not-contact, and any sequence
+                    already running for them is cancelled. Everyone else at{" "}
+                    <span className="font-medium">@{emailDomain}</span> keeps
+                    receiving mail.
+                  </p>
                   <Button
                     size="sm"
                     variant="destructive"
+                    className="mt-2.5"
                     disabled={busy !== null}
-                    onClick={() => act("stop")}
+                    onClick={() => act("stop", "email")}
                   >
                     {busy === "stop" ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
                       <Ban className="size-4" />
                     )}
-                    Yes, never email {firstName}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
-                    Cancel
+                    Stop emailing {firstName}
                   </Button>
                 </div>
+
+                <div className="bg-background rounded border p-3">
+                  <p className="text-sm font-medium">
+                    Everyone at @{emailDomain}
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Blocks the whole domain, including addresses we have never seen.
+                    Nobody at this company can be enrolled in any campaign again.
+                    Use it for a competitor, a client, or a domain that bounces
+                    everything — not for one annoyed person.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="mt-2.5"
+                    disabled={busy !== null}
+                    onClick={() => act("stop", "domain")}
+                  >
+                    {busy === "stopDomain" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Globe className="size-4" />
+                    )}
+                    Stop the whole domain
+                  </Button>
+                </div>
+
+                <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
+                  Cancel
+                </Button>
               </div>
             )}
 

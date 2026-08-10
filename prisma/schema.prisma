@@ -501,6 +501,37 @@ model QmMessage {
   @@index([conversation_id, sent_at])
 }
 
+/// Whole domains that must never be emailed.
+///
+/// Separate from Suppression because it answers a different question. An address
+/// block says "this person asked to stop"; a domain block says "nobody at this
+/// company should be contacted" — a competitor, a client, our own staff, or a
+/// domain whose mail server rejects everything and is quietly burning the
+/// sending reputation.
+///
+/// Enforced locally, at enrolment. QuickMail has an addDncDomains operation but
+/// its input shape is not yet known, so a domain block stops campaigns this app
+/// builds and does not reach into sequences already running there.
+model SuppressedDomain {
+  id String @id @default(cuid())
+
+  /// Lowercased, no leading "@" — e.g. "example.com".
+  domain String @unique
+
+  reason SuppressionReason
+  /// Where it came from: manual, reply-review, bounce-pattern, import.
+  source String
+
+  /// How many times an address at this domain has been blocked since.
+  hits Int @default(0)
+
+  note       String?
+  first_seen DateTime @default(now())
+  last_seen  DateTime @updatedAt
+
+  @@index([reason])
+}
+
 enum SuppressionReason {
   BOUNCE
   COMPLAINT

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { suppress } from "@/lib/suppression";
+import { suppress, suppressDomain } from "@/lib/suppression";
 import { stopProspect, withSession, type StopResult } from "@/lib/quickmail/inbox";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
@@ -29,6 +29,14 @@ export async function POST(request: Request) {
     return badRequest("`action` must be replied, stop or ignore");
   }
 
+  /**
+   * How wide the stop goes. "domain" bars everyone at the company, not just the
+   * person who replied — for a competitor, a client, or a domain whose server
+   * rejects everything. Defaults to the narrow one: widening a block is a
+   * deliberate choice, never a default.
+   */
+  const scope = optionalString(parsed.data.scope) === "domain" ? "domain" : "email";
+
   const convo = await prisma.qmConversation.findUnique({
     where: { id },
     include: { lead: true },
@@ -38,6 +46,7 @@ export async function POST(request: Request) {
   }
 
   let suppressed: { email: string; hits: number } | null = null;
+  let domainBlocked: { domain: string; leadsAffected: number } | null = null;
   let quickmail: StopResult | null = null;
 
   if (action === "stop") {
@@ -59,6 +68,23 @@ export async function POST(request: Request) {
       note: "Stopped by a human from the Replies tab",
     });
     suppressed = { email: r.email, hits: r.hits };
+
+    /**
+     * A domain stop bars the address as well as the domain.
+     *
+     * Belt and braces on purpose: the domain row is what catches every other
+     * address at that company, and the address row is what survives if someone
+     * later unblocks the domain but not the person who actually asked to stop.
+     */
+    if (scope === "domain") {
+      const d = await suppressDomain({
+        domain: email,
+        reason: "NEGATIVE_REPLY",
+        source: "reply-review",
+        note: `Blocked from a reply by ${email}`,
+      });
+      domainBlocked = { domain: d.domain, leadsAffected: d.leadsAffected };
+    }
 
     /**
      * Then QuickMail, which is where the sending actually happens.
@@ -150,6 +176,7 @@ export async function POST(request: Request) {
     ok: true,
     conversation: { id: updated.id, handled_action: updated.handled_action },
     suppressed,
+    domain: domainBlocked,
     quickmail,
   });
 }

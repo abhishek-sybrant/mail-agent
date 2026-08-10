@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
+  Ban,
   Bot,
   CheckSquare,
   Inbox,
@@ -28,6 +29,7 @@ const NAV = [
   { href: "/sync", label: "QuickMail sync", icon: RefreshCw },
   { href: "/templates", label: "Templates", icon: PenSquare },
   { href: "/replies", label: "Replies", icon: MailOpen, badge: "replies" as const },
+  { href: "/stopped", label: "Stopped", icon: Ban },
   { href: "/approvals", label: "Approvals", icon: CheckSquare, badge: "pending" as const },
   { href: "/inbox", label: "AI Inbox", icon: Inbox },
   { href: "/settings/webhooks", label: "Reply webhook", icon: Webhook },
