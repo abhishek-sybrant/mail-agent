@@ -22,6 +22,25 @@ export type BlockedItem = {
   since: string;
 };
 
+/**
+ * Turns the raw QuickMail failure into something with a next step.
+ *
+ * Domain blocks reach QuickMail through the attached browser, so the usual
+ * failure is that Edge is closed or was started without the debugging flag.
+ * "The attached browser is not signed in to QuickMail" is accurate and useless
+ * to someone who does not know a browser was involved.
+ */
+function describeQuickMailFailure(raw: string | null | undefined): string {
+  const message = raw ?? "reason unknown";
+  if (/debuggable browser|not signed in|CDP|9222/i.test(message)) {
+    return "the QuickMail browser session is not connected. Reopen Edge with the debugging flag and sign in, then block it again to sync";
+  }
+  if (/dry run/i.test(message)) {
+    return "QUICKMAIL_DRY_RUN is on, so nothing was written there";
+  }
+  return message.replace(/\.$/, "");
+}
+
 const REASON_LABEL: Record<string, string> = {
   BOUNCE: "Bounced",
   COMPLAINT: "Spam complaint",
@@ -97,11 +116,18 @@ export function StoppedList({
           `@${json.domain} blocked here and in QuickMail — covers ${json.leadsAffected} known lead${json.leadsAffected === 1 ? "" : "s"}.`,
         );
       } else {
-        // Say which half worked. "Blocked" alone would imply QuickMail's own
-        // sequences had stopped when they may not have.
-        toast.warning(
-          `@${json.domain} blocked here, but not in QuickMail: ${json.quickmail ?? "unknown reason"}.`,
-        );
+        /**
+         * Lead with what succeeded.
+         *
+         * The block itself is local and always works; only the push to
+         * QuickMail needs the attached browser. Opening with the failure made a
+         * working action read as a broken one, which is exactly how this was
+         * reported.
+         */
+        toast.warning(`@${json.domain} blocked.`, {
+          description: `QuickMail was not updated — ${describeQuickMailFailure(json.quickmail)}. Their own sequences to this domain may still run.`,
+          duration: 8000,
+        });
       }
       setValue("");
       startTransition(() => router.refresh());
@@ -114,9 +140,10 @@ export function StoppedList({
     try {
       const json = await post({ action: "unblock", value: item.value }, item.id);
       if (item.kind === "domain" && json.quickmail) {
-        toast.warning(
-          `@${item.value} unblocked here, but not in QuickMail: ${json.quickmail}.`,
-        );
+        toast.warning(`@${item.value} unblocked.`, {
+          description: `QuickMail still has it blocked — ${describeQuickMailFailure(json.quickmail)}.`,
+          duration: 8000,
+        });
       } else {
         toast.success(
           item.kind === "domain"

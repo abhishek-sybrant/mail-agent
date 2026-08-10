@@ -412,6 +412,36 @@ async function setTrigger(
     log.push("no '+ Trigger' button found on the Automation tab");
     return false;
   }
+
+  /**
+   * Refuse to stack a second trigger on the same slot.
+   *
+   * QuickMail *adds* to an existing trigger rather than replacing it: a campaign
+   * on 10 leads/day, given a fresh trigger of 2, ends up on 12. Measured, not
+   * assumed. So running this twice — a retry, or finish-campaign re-run by hand
+   * — silently doubles the send rate, which is how "I set 2 and QuickMail says
+   * 4" happens.
+   *
+   * Each existing trigger renders its own edit form, so a number input holding
+   * more than zero means a trigger is already there. The one reading 0 is the
+   * blank "new trigger" form.
+   */
+  const existing = await page
+    .evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLInputElement>('input[type="number"]'))
+        .map((i) => Number(i.value))
+        .filter((n) => n > 0),
+    )
+    .catch(() => [] as number[]);
+
+  if (existing.length > 0) {
+    log.push(
+      `campaign already has a trigger (${existing[0]} leads/day) — left alone, ` +
+        `because applying another would add to it, not replace it`,
+    );
+    return true;
+  }
+
   await add.click();
 
   /**
