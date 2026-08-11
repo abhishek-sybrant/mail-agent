@@ -16,13 +16,26 @@ import { replyText } from "@/lib/quickmail/mail-text";
  * top, so a missing API key logs and moves on rather than failing a sync.
  */
 
-/** Reply types worth a person's attention. */
-const WORTH_FORWARDING = new Set([
-  "POSITIVE",
-  "MEETING_REQUEST",
-  "NEGATIVE",
-  "UNSUBSCRIBE",
-]);
+/**
+ * How much gets forwarded, set by FORWARD_SCOPE in .env.
+ *
+ *   human      every reply written by a person — the default, and what a
+ *              mailbox forwarding rule cannot do, because Gmail and Outlook
+ *              have no reliable way to tell an autoresponder apart.
+ *   actionable only positives, meeting requests, rejections and opt-outs.
+ *   all        everything, autoresponders included. 239 of 378 threads here.
+ *
+ * Auto-replies are excluded from the first two because they are the majority of
+ * the inbox: forward those and the manager learns to ignore the channel.
+ */
+const ACTIONABLE = new Set(["POSITIVE", "MEETING_REQUEST", "NEGATIVE", "UNSUBSCRIBE"]);
+
+export type ForwardScope = "human" | "actionable" | "all";
+
+export function forwardScope(): ForwardScope {
+  const v = process.env.FORWARD_SCOPE?.trim().toLowerCase();
+  return v === "actionable" || v === "all" ? v : "human";
+}
 
 export type ForwardOutcome =
   | { sent: true; to: string }
@@ -56,23 +69,36 @@ function transport() {
   });
 }
 
-/**
- * Should this thread be forwarded automatically?
- *
- * Auto-replies and neutral acknowledgements are excluded — 237 of 375 threads
- * are out-of-office autoresponders, and forwarding those trains the manager to
- * ignore the whole channel.
- */
+/** Should this thread be forwarded automatically? */
 export function shouldForward(convo: {
   is_ooo: boolean;
   reply_type: string | null;
   handled_at: Date | null;
   forwarded_at: Date | null;
 }): boolean {
-  if (convo.is_ooo) return false;
+  // Already dealt with, or already sent — never send the same reply twice.
   if (convo.handled_at) return false;
   if (convo.forwarded_at) return false;
-  return convo.reply_type !== null && WORTH_FORWARDING.has(convo.reply_type);
+
+  const scope = forwardScope();
+  if (scope === "all") return true;
+  if (convo.is_ooo) return false;
+  if (scope === "human") return true;
+
+  // "actionable" is the only scope that needs a classification, so an
+  // unclassified thread is held back rather than guessed at.
+  return convo.reply_type !== null && ACTIONABLE.has(convo.reply_type);
+}
+
+/** The same rule as a Prisma filter, for the batch query. */
+function pendingWhere() {
+  const scope = forwardScope();
+  return {
+    handled_at: null,
+    forwarded_at: null,
+    ...(scope === "all" ? {} : { is_ooo: false }),
+    ...(scope === "actionable" ? { reply_type: { in: [...ACTIONABLE] } } : {}),
+  };
 }
 
 const TONE_LABEL: Record<string, string> = {
@@ -245,12 +271,7 @@ export async function forwardPending(limit = 20): Promise<{
     return { sent: 0, failed: 0, remaining: 0, reasons: ["not configured"] };
   }
 
-  const where = {
-    is_ooo: false,
-    handled_at: null,
-    forwarded_at: null,
-    reply_type: { in: [...WORTH_FORWARDING] },
-  };
+  const where = pendingWhere();
 
   const [pending, total] = await Promise.all([
     prisma.qmConversation.findMany({
