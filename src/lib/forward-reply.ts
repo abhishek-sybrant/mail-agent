@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
 import { replyText } from "@/lib/quickmail/mail-text";
 
@@ -28,7 +29,31 @@ export type ForwardOutcome =
   | { sent: false; reason: string };
 
 export function forwardingConfigured(): boolean {
-  return Boolean(process.env.MANAGER_EMAIL && process.env.RESEND_API_KEY);
+  return Boolean(
+    process.env.MANAGER_EMAIL && process.env.SMTP_HOST && process.env.SMTP_USER,
+  );
+}
+
+/**
+ * SMTP, not a third-party sending service.
+ *
+ * The forward goes out from a mailbox Sybrant already owns, so the manager sees
+ * a sender they recognise instead of a shared address belonging to an API
+ * provider — which is what a spam filter sees too. It also means no extra
+ * account, and the credentials are ones you already control.
+ */
+function transport() {
+  const port = Number(process.env.SMTP_PORT ?? 587);
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    // 465 is implicit TLS; 587 upgrades with STARTTLS after connecting.
+    secure: port === 465,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
 }
 
 /**
@@ -76,7 +101,6 @@ export async function forwardReply(
   opts: { force?: boolean } = {},
 ): Promise<ForwardOutcome> {
   const to = process.env.MANAGER_EMAIL?.trim();
-  const apiKey = process.env.RESEND_API_KEY?.trim();
 
   const convo = await prisma.qmConversation.findUnique({
     where: { id: conversationId },
@@ -93,26 +117,39 @@ export async function forwardReply(
   const latest = convo.messages[0];
   if (!latest) return { sent: false, reason: "no inbound message" };
 
-  if (!to || !apiKey) {
+  if (!forwardingConfigured() || !to) {
     console.log(
-      `[forward] would send ${convo.prospect_email} to a manager — MANAGER_EMAIL / RESEND_API_KEY not set`,
+      `[forward] would send ${convo.prospect_email} to a manager — MANAGER_EMAIL / SMTP_* not set`,
     );
     return { sent: false, reason: "not configured" };
   }
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const link = `${appUrl}/replies?q=${encodeURIComponent(convo.prospect_email ?? "")}`;
+  /**
+   * Deep link to this one conversation, not a search over all of them.
+   *
+   * APP_URL must be an address the recipient's machine can actually resolve.
+   * A localhost default works only for whoever is running the app — see the
+   * warning below, which is emitted rather than silently sending a dead link.
+   */
+  const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  const link = `${appUrl}/replies/${encodeURIComponent(convo.id)}`;
+  if (/localhost|127\.0\.0\.1/.test(appUrl)) {
+    console.warn(
+      `[forward] APP_URL is ${appUrl} — the link will not open on anyone else's machine.`,
+    );
+  }
   const who = convo.prospect_name ?? convo.prospect_email ?? "a prospect";
   const tone = convo.reply_type ? (TONE_LABEL[convo.reply_type] ?? convo.reply_type) : null;
   const body = replyText(latest, 4000);
 
   /**
-   * Reply-To points back at us, not the prospect.
+   * Reply-To is the prospect, so hitting Reply in Outlook reaches them.
    *
-   * If the manager hits Reply in Outlook it must not go straight to the
-   * prospect — that would send from the wrong address, outside the thread, with
-   * QuickMail none the wiser. Pointing it at the manager's own address makes
-   * Reply a harmless no-op and pushes them to the link instead.
+   * That is a real tradeoff, stated in the email rather than hidden: a reply
+   * sent that way comes from the manager's own address, outside the QuickMail
+   * thread, and QuickMail never records it. The link is the better route and is
+   * presented first; direct reply is the fast one for a manager who is not
+   * going to open a web app.
    */
   const subject = `[Reply] ${who}${tone ? ` — ${tone}` : ""}`;
 
@@ -126,10 +163,15 @@ export async function forwardReply(
     "--- their message ---",
     body,
     "",
-    "--- to answer ---",
-    `Open it here: ${link}`,
-    "Replying from this email will not reach them — the app sends from the",
-    "mailbox that received the reply, so the thread and the sending domain stay intact.",
+    "--- two ways to answer ---",
+    `1. Open it in the AI SDR app: ${link}`,
+    "   Gives you a drafted reply, and sends from the mailbox that received",
+    "   this one so the conversation stays on the same thread. You can also",
+    "   stop emailing them entirely from there.",
+    "",
+    "2. Just hit Reply to this email.",
+    `   Goes straight to ${convo.prospect_email ?? "them"}, but from your own`,
+    "   address and outside the campaign, so it won't be recorded.",
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -142,38 +184,35 @@ export async function forwardReply(
         ${tone ? ` · <strong>${escapeHtml(tone)}</strong>` : ""}
       </p>
       <div style="border-left:3px solid #ddd;padding:2px 0 2px 14px;margin:0 0 18px;white-space:pre-wrap;font-size:14px;line-height:1.5">${escapeHtml(body)}</div>
-      <p style="margin:0 0 18px">
-        <a href="${link}" style="background:#111;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block;font-size:14px">Read and reply</a>
+      <p style="margin:0 0 8px">
+        <a href="${link}" style="background:#111;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;display:inline-block;font-size:14px;font-weight:600">Open in the AI SDR app</a>
       </p>
-      <p style="margin:0;color:#777;font-size:12px;line-height:1.5">
+      <p style="margin:0 0 20px;color:#555;font-size:12.5px;line-height:1.5">
+        Drafts a reply for you, sends it from
+        ${convo.inbox_email ? `<strong>${escapeHtml(convo.inbox_email)}</strong>` : "the original mailbox"}
+        so it stays on the same thread, and lets you stop emailing them entirely.
+      </p>
+      <p style="margin:0 0 20px;color:#555;font-size:12.5px;line-height:1.5;border-top:1px solid #eee;padding-top:14px">
+        <strong>Or just hit Reply</strong> to this email — it goes straight to
+        ${escapeHtml(convo.prospect_email ?? "them")}. Faster, but it comes from your
+        own address and outside the campaign, so it won't be recorded against it.
+      </p>
+      <p style="margin:0;color:#888;font-size:11.5px;line-height:1.5">
         ${convo.campaign_name ? `Campaign: ${escapeHtml(convo.campaign_name)}<br>` : ""}
-        ${convo.inbox_email ? `Received by ${escapeHtml(convo.inbox_email)}<br>` : ""}
-        Replying to this email will not reach them. Use the button — the app sends
-        from the mailbox that received the reply, so the thread stays intact.
+        ${convo.inbox_email ? `Received by ${escapeHtml(convo.inbox_email)}` : ""}
       </p>
     </div>`;
 
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.NOTIFY_FROM ?? "AI SDR <onboarding@resend.dev>",
-        to: [to],
-        reply_to: to,
-        subject,
-        text,
-        html,
-      }),
+    await transport().sendMail({
+      from: process.env.NOTIFY_FROM ?? process.env.SMTP_USER,
+      to,
+      // Reply goes to the prospect; see the note above on the tradeoff.
+      replyTo: convo.prospect_email ?? to,
+      subject,
+      text,
+      html,
     });
-
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      return { sent: false, reason: `Resend returned ${res.status}: ${detail.slice(0, 200)}` };
-    }
 
     await prisma.qmConversation.update({
       where: { id: conversationId },

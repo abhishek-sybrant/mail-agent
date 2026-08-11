@@ -111,6 +111,7 @@ export function RepliesList({
   tone,
   toneCounts,
   lastSync,
+  singleThread = false,
 }: {
   items: ReplyThread[];
   bookingLink: string | null;
@@ -123,6 +124,12 @@ export function RepliesList({
   tone: string;
   toneCounts: { positive: number; neutral: number; negative: number; all: number };
   lastSync: string | null;
+  /**
+   * Rendered for one conversation, from the deep link in a forwarded email.
+   * Drops the toolbar and filters — there is nothing to search or narrow — and
+   * opens the thread, because the reader was sent here to act on it.
+   */
+  singleThread?: boolean;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState(query);
@@ -199,6 +206,22 @@ export function RepliesList({
     } finally {
       setSyncing(false);
     }
+  }
+
+  if (singleThread) {
+    return (
+      <div className="space-y-4">
+        {items.map((item) => (
+          <ThreadCard
+            key={item.id}
+            item={item}
+            bookingLink={bookingLink}
+            liveSending={liveSending}
+            startOpen
+          />
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -305,10 +328,12 @@ function ThreadCard({
   item,
   bookingLink,
   liveSending,
+  startOpen = false,
 }: {
   item: ReplyThread;
   bookingLink: string | null;
   liveSending: boolean;
+  startOpen?: boolean;
 }) {
   const router = useRouter();
 
@@ -324,7 +349,7 @@ function ThreadCard({
     !item.suppressed &&
     (item.replyType === "NEGATIVE" || item.replyType === "UNSUBSCRIBE");
 
-  const [open, setOpen] = useState(flagged);
+  const [open, setOpen] = useState(startOpen || flagged);
   const [draft, setDraft] = useState("");
   const [draftSource, setDraftSource] = useState<{
     source: string;

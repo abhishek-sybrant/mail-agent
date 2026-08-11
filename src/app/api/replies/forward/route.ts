@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Forwarding is not set up. Add MANAGER_EMAIL and RESEND_API_KEY to .env, then restart.",
+          "Forwarding is not set up. Add MANAGER_EMAIL and SMTP_HOST / SMTP_USER / SMTP_PASS to .env, then restart.",
       },
       { status: 409 },
     );
