@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { Geist, Geist_Mono } from "next/font/google";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -17,12 +19,33 @@ export const metadata: Metadata = {
   description: "Outbound campaign orchestration with human-in-the-loop review",
 };
 
+/** Paths that render without a session. Kept in step with src/proxy.ts. */
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/api/webhooks", "/api/cron"];
+
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const session = await auth();
 
-  // Signed-out users only ever see /login, which renders without the shell.
+  /**
+   * The real authorization check.
+   *
+   * `auth()` verifies the token's signature; the proxy only sees that a cookie
+   * exists. Without this redirect, a cookie containing arbitrary text got past
+   * the proxy and every page then rendered its data to an unauthenticated
+   * request — 50,000 leads, every reply thread, the block list. It also covers
+   * the milder case of a token signed with a rotated AUTH_SECRET, which used to
+   * render the app with no navigation instead of asking for a fresh sign-in.
+   *
+   * Placed in the root layout deliberately: every page renders through it, so
+   * no page can forget.
+   */
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const isPublic = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+  if (!session?.user && !isPublic) {
+    redirect(`/login?callbackUrl=${encodeURIComponent(pathname || "/")}`);
+  }
+
   const [pending, replies] = session?.user
     ? await Promise.all([
         prisma.approval.count({ where: { status: "PENDING" } }),
