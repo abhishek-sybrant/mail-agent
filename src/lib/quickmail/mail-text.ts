@@ -63,6 +63,16 @@ export function htmlToText(html: string | null | undefined): string {
      * blank lines between one word and the signature.
      */
     .replace(/ /g, " ")
+    /**
+     * Line endings are normalised before anything counts them.
+     *
+     * Mail arrives CRLF, while the tag replacements above insert bare "\n" — so
+     * a paragraph gap ends up as "\n\n\r\n\n\r\n". The collapse below matches
+     * runs of "\n" only, and a stray "\r" splits every run into pieces of two,
+     * so nothing collapsed: real replies rendered with four blank lines between
+     * every line, signature included.
+     */
+    .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

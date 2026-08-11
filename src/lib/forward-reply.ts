@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
 import { replyText } from "@/lib/quickmail/mail-text";
+import { sendReply, withSession } from "@/lib/quickmail/inbox";
 
 /**
  * Emailing an inbound reply to whoever handles them.
@@ -41,10 +42,29 @@ export type ForwardOutcome =
   | { sent: true; to: string }
   | { sent: false; reason: string };
 
+/**
+ * How the forward is delivered.
+ *
+ *   quickmail  through QuickMail's own replyToEmail, using the OAuth token it
+ *              already holds for one of your mailboxes. No credentials here,
+ *              but it needs the attached browser and files a copy of the
+ *              forward inside the prospect's QuickMail thread.
+ *   smtp       straight from a mailbox over SMTP. Needs an app password, but
+ *              runs without a browser and leaves QuickMail untouched.
+ */
+export type ForwardTransport = "quickmail" | "smtp";
+
+export function forwardTransport(): ForwardTransport {
+  return process.env.FORWARD_TRANSPORT?.trim().toLowerCase() === "smtp"
+    ? "smtp"
+    : "quickmail";
+}
+
 export function forwardingConfigured(): boolean {
-  return Boolean(
-    process.env.MANAGER_EMAIL && process.env.SMTP_HOST && process.env.SMTP_USER,
-  );
+  if (!process.env.MANAGER_EMAIL) return false;
+  return forwardTransport() === "smtp"
+    ? Boolean(process.env.SMTP_HOST && process.env.SMTP_USER)
+    : Boolean(process.env.FORWARD_FROM_INBOX);
 }
 
 /**
@@ -230,15 +250,47 @@ export async function forwardReply(
     </div>`;
 
   try {
-    await transport().sendMail({
-      from: process.env.NOTIFY_FROM ?? process.env.SMTP_USER,
-      to,
-      // Reply goes to the prospect; see the note above on the tradeoff.
-      replyTo: convo.prospect_email ?? to,
-      subject,
-      text,
-      html,
-    });
+    if (forwardTransport() === "quickmail") {
+      /**
+       * Sent through QuickMail, using the mailbox authorisation it already has.
+       *
+       * `replyToEmail` exists to answer a prospect, but its `to` is explicit and
+       * fully replaces the thread's recipient — verified live: the manager got
+       * it, the prospect got nothing, cc was empty.
+       *
+       * FORWARD_FROM_INBOX chooses which mailbox sends. It should NOT be the one
+       * that received the reply: those are cold-outreach accounts, and the first
+       * forward sent from one landed in Gmail's spam folder. A mailbox that has
+       * never run a campaign has no such reputation to overcome.
+       */
+      if (!convo.replyable_todo_id) {
+        return { sent: false, reason: "no replyable message — re-run the reply sync" };
+      }
+
+      const result = await withSession((s) =>
+        sendReply(s, {
+          todoId: convo.replyable_todo_id!,
+          inboxId: process.env.FORWARD_FROM_INBOX!.trim(),
+          subject,
+          html,
+          to,
+          archive: false,
+        }),
+      );
+
+      if (result.dryRun) return { sent: false, reason: "QUICKMAIL_DRY_RUN is on" };
+      if (!result.sent) return { sent: false, reason: result.error ?? "QuickMail refused" };
+    } else {
+      await transport().sendMail({
+        from: process.env.NOTIFY_FROM ?? process.env.SMTP_USER,
+        to,
+        // Reply goes to the prospect; see the note above on the tradeoff.
+        replyTo: convo.prospect_email ?? to,
+        subject,
+        text,
+        html,
+      });
+    }
 
     await prisma.qmConversation.update({
       where: { id: conversationId },
@@ -261,7 +313,7 @@ export async function forwardReply(
  * dispatch fifty emails at once — the rest go on the next run, and the count is
  * reported rather than silently trimmed.
  */
-export async function forwardPending(limit = 20): Promise<{
+export async function forwardPending(limit?: number): Promise<{
   sent: number;
   failed: number;
   remaining: number;
@@ -271,13 +323,22 @@ export async function forwardPending(limit = 20): Promise<{
     return { sent: 0, failed: 0, remaining: 0, reasons: ["not configured"] };
   }
 
+  /**
+   * How many go out per sync, from FORWARD_BATCH.
+   *
+   * There is a 137-reply backlog, and dispatching that in one press would look
+   * like a malfunction to whoever receives it — and to Gmail, which treats a
+   * sudden burst from one sender as exactly what it looks like. A small batch
+   * drains it over several syncs instead, newest first.
+   */
+  const batch = limit ?? Math.min(Math.max(Number(process.env.FORWARD_BATCH) || 5, 1), 100);
   const where = pendingWhere();
 
   const [pending, total] = await Promise.all([
     prisma.qmConversation.findMany({
       where,
       orderBy: { waiting_since: "desc" },
-      take: limit,
+      take: batch,
       select: { id: true },
     }),
     prisma.qmConversation.count({ where }),
