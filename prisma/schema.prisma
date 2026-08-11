@@ -463,6 +463,14 @@ model QmConversation {
   /// REPLIED · STOPPED · IGNORED
   handled_action String?
 
+  /// When this thread was emailed to the manager, and to whom.
+  ///
+  /// Recorded so a re-sync cannot forward the same reply twice — the sync runs
+  /// on demand and re-reads threads it has already seen, so "have we sent this"
+  /// has to be a stored fact rather than inferred from recency.
+  forwarded_at DateTime?
+  forwarded_to String?
+
   synced_at  DateTime @default(now())
   created_at DateTime @default(now())
 

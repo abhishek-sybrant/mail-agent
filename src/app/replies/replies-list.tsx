@@ -10,6 +10,7 @@ import {
   CircleSlash,
   Copy,
   ExternalLink,
+  Forward,
   Globe,
   Loader2,
   Mail,
@@ -63,6 +64,8 @@ export type ReplyThread = {
   suppressed: boolean;
   handledAt: string | null;
   handledAction: string | null;
+  /** When this was emailed to the manager, if it has been. */
+  forwardedAt: string | null;
   messages: ThreadMessage[];
 };
 
@@ -178,6 +181,18 @@ export function RepliesList({
             ? ". For the older ones: npm run sync-replies -- --limit=200"
             : "."),
       );
+
+      // Forwarding is a separate outcome and can fail on its own, so it gets
+      // its own message rather than being folded into "synced".
+      const f = json.forwarded;
+      if (f?.sent > 0) {
+        toast.success(
+          `${f.sent} repl${f.sent === 1 ? "y" : "ies"} emailed to the manager` +
+            (f.remaining > 0 ? `, ${f.remaining} still queued.` : "."),
+        );
+      } else if (f?.failed > 0) {
+        toast.warning(`Could not forward ${f.failed}: ${f.reasons.join("; ")}`);
+      }
       startTransition(() => router.refresh());
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Sync failed");
@@ -451,6 +466,25 @@ function ThreadCard({
     subject ?? latestIn?.subject ?? item.subject ?? "Re:",
   )}&body=${encodeURIComponent(draft)}`;
 
+  async function forward() {
+    setBusy("forward");
+    try {
+      const res = await fetch("/api/replies/forward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: item.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Forward failed");
+      toast.success(`Sent to ${json.to}`);
+      startTransition(() => router.refresh());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Forward failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(draft);
@@ -544,6 +578,12 @@ function ThreadCard({
             {item.doNotContact && (
               <Badge variant="outline" className="border-red-600/30 text-red-700">
                 Do not contact
+              </Badge>
+            )}
+            {item.forwardedAt && (
+              <Badge variant="outline" className="text-muted-foreground">
+                <Forward className="size-3" />
+                Sent to manager
               </Badge>
             )}
             {item.handledAction && (
@@ -876,6 +916,20 @@ function ThreadCard({
               >
                 <Copy className="size-4" />
                 Copy
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy !== null}
+                onClick={forward}
+              >
+                {busy === "forward" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Forward className="size-4" />
+                )}
+                {item.forwardedAt ? "Forward again" : "Forward to manager"}
               </Button>
 
               {!item.suppressed && !item.doNotContact && (

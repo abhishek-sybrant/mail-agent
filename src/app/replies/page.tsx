@@ -115,6 +115,7 @@ export default async function RepliesPage({
     suppressed: c.lead?.suppressed ?? false,
     handledAt: c.handled_at?.toISOString() ?? null,
     handledAction: c.handled_action,
+    forwardedAt: c.forwarded_at?.toISOString() ?? null,
     messages: c.messages.map((m) => ({
       id: m.id,
       direction: m.direction as "IN" | "OUT",

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { withSession } from "@/lib/quickmail/inbox";
 import { pullReplies } from "@/lib/quickmail/inbox-pull";
+import { forwardPending } from "@/lib/forward-reply";
 import { readJson } from "@/lib/webhook";
 
 /**
@@ -33,10 +34,25 @@ export async function POST(request: Request) {
   try {
     const result = await withSession((s) => pullReplies(s, { limit }));
 
+    /**
+     * Forward after the pull, not during it.
+     *
+     * A thread is only worth forwarding once it has been classified and stored,
+     * and doing it here means a failure to email never costs us the sync — the
+     * replies are already saved either way.
+     */
+    const forwarded = await forwardPending().catch((error) => ({
+      sent: 0,
+      failed: 0,
+      remaining: 0,
+      reasons: [error instanceof Error ? error.message : "forwarding failed"],
+    }));
+
     return NextResponse.json({
       ok: true,
       ...result,
       partial: result.conversations < result.total,
+      forwarded,
     });
   } catch (error) {
     /**
