@@ -8,6 +8,7 @@ import {
   Loader2,
   Search,
   Upload,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -94,8 +95,17 @@ function SelectExisting({
   const [total, setTotal] = useState(0);
   const [capped, setCapped] = useState(false);
   const [leads, setLeads] = useState<LeadRow[]>([]);
-  // Deselecting is the common action, so everything loaded starts ticked.
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
+
+  /**
+   * Everything picked so far, across every search — the whole row, not just the
+   * id, so someone chosen under an earlier search can still be named on screen.
+   *
+   * This used to be rebuilt from each search's results, which meant picking
+   * Dhilak and then searching for Pranav silently dropped Dhilak: the only way
+   * to select two people was to find a query that returned both.
+   */
+  const [picked, setPicked] = useState<Map<string, LeadRow>>(new Map());
+  const firstLoad = useRef(true);
 
   async function load() {
     setBusy(true);
@@ -118,10 +128,23 @@ function SelectExisting({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Lookup failed");
 
+      const rows: LeadRow[] = json.leads ?? [];
       setTotal(json.count);
       setCapped(json.capped);
-      setLeads(json.leads ?? []);
-      setChosen(new Set((json.leads ?? []).map((l: LeadRow) => l.id)));
+      setLeads(rows);
+
+      /**
+       * Only the opening list arrives pre-ticked.
+       *
+       * That first view is the broad audience, where removing a few is the
+       * common action. Once someone types a search they are hunting for
+       * specific people, so results arrive unticked and earlier picks are left
+       * alone — otherwise every search would silently add its whole result set.
+       */
+      if (firstLoad.current) {
+        firstLoad.current = false;
+        setPicked(new Map(rows.map((l) => [l.id, l])));
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed");
     } finally {
@@ -137,16 +160,32 @@ function SelectExisting({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggle(id: string) {
-    setChosen((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  function toggle(lead: LeadRow) {
+    setPicked((prev) => {
+      const next = new Map(prev);
+      if (next.has(lead.id)) next.delete(lead.id);
+      else next.set(lead.id, lead);
       return next;
     });
   }
 
-  const allOn = leads.length > 0 && chosen.size === leads.length;
+  function remove(id: string) {
+    setPicked((prev) => {
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  // The header checkbox governs the rows on screen, not the whole selection.
+  const visibleOn = leads.filter((l) => picked.has(l.id)).length;
+  const allOn = leads.length > 0 && visibleOn === leads.length;
+
+  // Picked under an earlier search, so not in the current results. Shown as
+  // chips — without them a selection that is off screen looks like it was lost.
+  const offscreen = [...picked.values()].filter(
+    (p) => !leads.some((l) => l.id === p.id),
+  );
 
   return (
     <div className="space-y-3">
@@ -201,6 +240,37 @@ function SelectExisting({
         </span>
       </label>
 
+      {/*
+        Picks that the current search does not show. Without this, selecting
+        Dhilak and then searching for Pranav looks like Dhilak was dropped —
+        which is exactly what used to happen.
+      */}
+      {offscreen.length > 0 && (
+        <div className="bg-muted/40 rounded-lg border p-2.5">
+          <p className="text-muted-foreground mb-1.5 text-xs">
+            Also selected, not in these results:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {offscreen.map((p) => (
+              <span
+                key={p.id}
+                className="bg-background inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-1 pl-2.5 text-xs"
+              >
+                <span className="max-w-52 truncate">{p.name ?? p.email}</span>
+                <button
+                  type="button"
+                  onClick={() => remove(p.id)}
+                  aria-label={`Remove ${p.name ?? p.email}`}
+                  className="hover:bg-accent text-muted-foreground hover:text-foreground rounded-full p-0.5"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* The actual leads, so individuals can be removed before sending */}
       <div className="rounded-lg border">
         <div className="bg-muted/40 flex items-center gap-2 border-b px-3 py-2 text-xs">
@@ -208,12 +278,24 @@ function SelectExisting({
             type="checkbox"
             className="size-3.5"
             checked={allOn}
-            onChange={(e) =>
-              setChosen(e.target.checked ? new Set(leads.map((l) => l.id)) : new Set())
-            }
+            onChange={(e) => {
+              const on = e.target.checked;
+              setPicked((prev) => {
+                const next = new Map(prev);
+                // Applies to the rows on screen only, leaving other picks intact.
+                for (const l of leads) {
+                  if (on) next.set(l.id, l);
+                  else next.delete(l.id);
+                }
+                return next;
+              });
+            }}
           />
           <span className="font-medium">
-            {fmtNumber(chosen.size)} of {fmtNumber(leads.length)} selected
+            {fmtNumber(visibleOn)} of {fmtNumber(leads.length)} shown
+          </span>
+          <span className="text-primary font-medium">
+            · {fmtNumber(picked.size)} selected in total
           </span>
           {capped && (
             <span className="text-muted-foreground">
@@ -246,8 +328,8 @@ function SelectExisting({
               <input
                 type="checkbox"
                 className="size-3.5 shrink-0"
-                checked={chosen.has(l.id)}
-                onChange={() => toggle(l.id)}
+                checked={picked.has(l.id)}
+                onChange={() => toggle(l)}
               />
               <span className="w-40 shrink-0 truncate font-medium">
                 {l.name ?? "—"}
@@ -269,18 +351,23 @@ function SelectExisting({
       </div>
 
       <Button
-        disabled={chosen.size === 0}
+        disabled={picked.size === 0}
         onClick={() =>
           onPicked({
-            ids: [...chosen],
-            label: `${fmtNumber(chosen.size)} leads selected${
-              capped ? ` (of ${fmtNumber(total)} matching)` : ""
-            }`,
+            ids: [...picked.keys()],
+            // Names the people when there are few enough to read, since two
+            // hand-picked leads read very differently from a bulk audience.
+            label:
+              picked.size <= 3
+                ? [...picked.values()].map((p) => p.name ?? p.email).join(", ")
+                : `${fmtNumber(picked.size)} leads selected${
+                    capped ? ` (of ${fmtNumber(total)} matching)` : ""
+                  }`,
           })
         }
       >
         <CheckCircle2 className="size-4" />
-        Use {fmtNumber(chosen.size)} selected
+        Use {fmtNumber(picked.size)} selected
       </Button>
     </div>
   );
