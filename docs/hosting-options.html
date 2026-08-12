@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI SDR Dashboard — hosting options</title>
+<style>
+  @page { size: A4; margin: 14mm 13mm; }
+
+  :root {
+    --ink:    #111110;
+    --ink-2:  #4d4c48;
+    --ink-3:  #7d7c74;
+    --rule:   #e3e1db;
+    --sunk:   #f7f6f3;
+    --blue:   #2a78d6;
+    --red:    #c0392f;
+    --amber:  #b06d10;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 9.8pt;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  h1 { font-size: 19pt; margin: 0 0 6px; letter-spacing: -0.4pt; line-height: 1.12; }
+  .lede { font-size: 10.8pt; color: var(--ink-2); margin: 0 0 4px; }
+  h2 {
+    font-size: 12pt; margin: 20px 0 8px; letter-spacing: -0.2pt;
+    padding-bottom: 5px; border-bottom: 2px solid var(--ink);
+  }
+  h2:first-of-type { margin-top: 18px; }
+  h3 { font-size: 10.2pt; margin: 15px 0 5px; }
+  p { margin: 0 0 9px; }
+  .rule-top { border-top: 3px solid var(--ink); padding-top: 10px; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 2px; }
+  th {
+    font-size: 7.8pt; text-transform: uppercase; letter-spacing: 0.7pt;
+    color: var(--ink-3); text-align: left; font-weight: 600;
+    padding: 0 9px 5px 0; border-bottom: 1.5px solid var(--ink);
+  }
+  td { padding: 7px 9px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td.k { font-weight: 620; }
+  td.c { text-align: center; }
+  .answer { color: var(--ink-2); }
+
+  .yes { color: var(--blue); font-weight: 650; }
+  .no  { color: var(--red);  font-weight: 650; }
+  .warn{ color: var(--amber); font-weight: 650; }
+
+  ul { margin: 6px 0 9px; padding-left: 17px; }
+  li { margin-bottom: 4px; }
+
+  .bar {
+    border-left: 3px solid var(--ink); background: var(--sunk);
+    padding: 10px 13px; margin: 14px 0; font-size: 9.4pt; line-height: 1.5;
+  }
+  .bar.warn { border-left-color: var(--red); }
+  .bar.pick { border-left-color: var(--blue); }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0 4px; }
+  .card { border: 1.5px solid var(--rule); border-radius: 6px; padding: 12px 14px; }
+  .card.pick { border-color: var(--blue); border-width: 2px; }
+  .card .cap {
+    font-size: 7.8pt; text-transform: uppercase; letter-spacing: 1pt;
+    color: var(--ink-3); margin-bottom: 5px;
+  }
+  .card.pick .cap { color: var(--blue); }
+  .card .big { font-size: 12pt; font-weight: 650; line-height: 1.25; margin-bottom: 6px; }
+  .card ul { margin: 0; padding-left: 15px; }
+  .card li { color: var(--ink-2); }
+
+  code {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 8.4pt; background: var(--sunk); padding: 0 3px; border-radius: 2px;
+  }
+  .foot { margin-top: 16px; font-size: 8pt; color: var(--ink-3); }
+  .num {
+    display: inline-block; min-width: 17px; height: 17px; line-height: 17px;
+    text-align: center; background: var(--ink); color: #fff;
+    border-radius: 50%; font-size: 8pt; font-weight: 600; margin-right: 6px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================== PAGE 1 -->
+<div class="page">
+  <h1>Hosting the AI SDR Dashboard</h1>
+  <p class="lede">
+    What it would take to reach the app from somewhere other than the machine it
+    runs on — and what that decision actually turns on.
+  </p>
+
+  <h2>The one thing that decides everything</h2>
+
+  <p>
+    QuickMail's published API cannot read a reply, send an email, mark a prospect
+    do-not-contact, or take a campaign live. We do all four through QuickMail's
+    own web app, driven by a signed-in browser on the operator's desk.
+  </p>
+  <p>
+    That browser is the constraint. <strong>Seven of the app's routes need it.
+    Three run on the API key alone.</strong> Everything else — the dashboard,
+    50,547 leads, search, templates, the block list, AI drafting — is local and
+    would host anywhere without complaint.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:34%">Feature</th>
+        <th style="width:22%">Needs the browser?</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="k">Sync replies</td><td class="no">yes</td><td class="answer">Reply content exists only in QuickMail's internal API.</td></tr>
+      <tr><td class="k">Send a reply</td><td class="no">yes</td><td class="answer">No send operation on any public API.</td></tr>
+      <tr><td class="k">Stop a prospect</td><td class="no">yes</td><td class="answer">Do-not-contact is not exposed publicly.</td></tr>
+      <tr><td class="k">Block a domain</td><td class="no">yes</td><td class="answer">Same — internal API only.</td></tr>
+      <tr><td class="k">Approve a stop</td><td class="no">yes</td><td class="answer">Pushes the block through to QuickMail.</td></tr>
+      <tr><td class="k">Forward to manager</td><td class="no">yes</td><td class="answer">Sends using QuickMail's own mailbox authorisation.</td></tr>
+      <tr><td class="k">Campaign go-live</td><td class="no">yes</td><td class="answer">No trigger field exists; the UI is clicked.</td></tr>
+      <tr><td class="k">Create a campaign</td><td class="yes">no</td><td class="answer">Public v2 API, API key only.</td></tr>
+      <tr><td class="k">Enrol leads</td><td class="yes">no</td><td class="answer">Public v2 API.</td></tr>
+      <tr><td class="k">Stats sync</td><td class="yes">no</td><td class="answer">Public v2 API.</td></tr>
+      <tr><td class="k">Everything else</td><td class="yes">no</td><td class="answer">Reads the local database. No QuickMail involvement.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="bar">
+    <strong>So "can we host it?" is really "what happens to those seven?"</strong>
+    Hosting the app itself is straightforward. Hosting the browser session is the
+    question, and it has no clean answer — which is why the options below trade
+    off rather than solve.
+  </div>
+
+  <h2>Why the browser cannot simply move to a server</h2>
+  <p>
+    The obvious idea — run a headless browser on the server, sign it into
+    QuickMail once — runs into two problems that are not engineering effort but
+    design:
+  </p>
+  <ul>
+    <li><strong>The login is "Continue with Google".</strong> Automating an OAuth
+      flow with two-factor authentication is possible but brittle, and it means
+      storing credentials that can reach far more than QuickMail.</li>
+    <li><strong>Session expiry fails silently.</strong> When the stored session
+      lapses, sync simply stops returning replies. No error, no bounce — the
+      queue just goes quiet, which is the failure mode this project has spent
+      most of its effort designing against.</li>
+  </ul>
+</div>
+
+<!-- ============================================== PAGE 2 -->
+<div class="page">
+  <div class="rule-top">
+    <h1 style="font-size:17pt">The five options</h1>
+    <p class="lede">Ordered by how much has to change.</p>
+  </div>
+
+  <table style="margin-top:14px">
+    <thead>
+      <tr>
+        <th style="width:6%"></th>
+        <th style="width:22%">Option</th>
+        <th style="width:12%">Effort</th>
+        <th style="width:14%">Operator's PC on?</th>
+        <th>What you get</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="num">1</span></td>
+        <td class="k">Tunnel<div style="font-weight:400;color:var(--ink-3);font-size:8.4pt">Tailscale or Cloudflare Tunnel</div></td>
+        <td>~1 hour</td>
+        <td class="warn">yes</td>
+        <td class="answer">A reachable URL pointing at the app where it already runs. <strong>Everything works</strong> — the browser is right there. Nothing is rewritten.</td>
+      </tr>
+      <tr>
+        <td><span class="num">2</span></td>
+        <td class="k">Split<div style="font-weight:400;color:var(--ink-3);font-size:8.4pt">hosted UI, local worker</div></td>
+        <td>2–3 days</td>
+        <td class="warn">yes</td>
+        <td class="answer">App and database hosted properly; a small worker on the operator's PC picks up browser jobs from a queue. <strong>Everything works</strong>, and the UI is always up even when the PC is not.</td>
+      </tr>
+      <tr>
+        <td><span class="num">3</span></td>
+        <td class="k">Full host<div style="font-weight:400;color:var(--ink-3);font-size:8.4pt">headless browser on the server</div></td>
+        <td>2–3 days<br>+ ongoing</td>
+        <td class="yes">no</td>
+        <td class="answer">Truly independent — but depends on automating a Google login and keeping a session alive. <strong>Not recommended</strong>; see page 1.</td>
+      </tr>
+      <tr>
+        <td><span class="num">4</span></td>
+        <td class="k">Replace the dependency<div style="font-weight:400;color:var(--ink-3);font-size:8.4pt">IMAP + SMTP</div></td>
+        <td>~1 week</td>
+        <td class="yes">no</td>
+        <td class="answer">Read replies over IMAP and send over SMTP, straight from the 17 mailboxes. Needs an app password for each. <strong>Still leaves two features stranded</strong> — do-not-contact and go-live have no API at all.</td>
+      </tr>
+      <tr>
+        <td><span class="num">5</span></td>
+        <td class="k">Email only<div style="font-weight:400;color:var(--ink-3);font-size:8.4pt">no app access</div></td>
+        <td class="yes">done</td>
+        <td class="yes">no</td>
+        <td class="answer">Replies are already forwarded to the manager's inbox. They read there and reply, or hand it back. No hosting, no exposure, nothing to maintain.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>The recommendation</h2>
+
+  <div class="split">
+    <div class="card pick">
+      <div class="cap">Today</div>
+      <div class="big">Option 5 — already running</div>
+      <ul>
+        <li>The stated requirement was "forward all the real replies to the manager".</li>
+        <li>That works now: real replies go to their inbox automatically, auto-responders filtered out.</li>
+        <li>No hosting, no exposure, no new credentials.</li>
+      </ul>
+    </div>
+    <div class="card pick">
+      <div class="cap">When they need to click into it</div>
+      <div class="big">Option 1 — Tailscale</div>
+      <ul>
+        <li>Install on both machines; the manager reaches a private address.</li>
+        <li>No firewall rules, no public exposure, encrypted by default.</li>
+        <li>Free at this size, about an hour, and nothing is rewritten.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p style="margin-top:14px">
+    Option 2 becomes worth its cost only when "the operator's PC must be on"
+    stops being acceptable — a real constraint eventually, but not one that
+    exists today. Options 3 and 4 solve a problem nobody currently has, and
+    neither solves it completely.
+  </p>
+
+  <div class="bar">
+    <strong>Worth saying plainly:</strong> if the manager is going to work out of
+    their inbox anyway, hosting buys very little. The app's advantage is the AI
+    draft, the permanent block list, and the audit trail — everything else they
+    can do from the forwarded email.
+  </div>
+</div>
+
+<!-- ============================================== PAGE 3 -->
+<div class="page">
+  <div class="rule-top">
+    <h1 style="font-size:17pt">Before anything is exposed</h1>
+    <p class="lede">
+      These apply to every option above. They are not hosting work — they are the
+      cost of the app being reachable by anyone other than the person sitting at it.
+    </p>
+  </div>
+
+  <table style="margin-top:14px">
+    <thead>
+      <tr>
+        <th style="width:6%"></th>
+        <th style="width:30%">Item</th>
+        <th>Why it matters, and the fix</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="num">1</span></td>
+        <td class="k">The password is still the shipped default</td>
+        <td class="answer">
+          <code>changeme123</code> guards 50,547 real people's names, emails and
+          phone numbers. Thirty seconds to fix:
+          <code>npm run set-password -- admin@sybrant.com</code>
+        </td>
+      </tr>
+      <tr>
+        <td><span class="num">2</span></td>
+        <td class="k">The seed would restore it</td>
+        <td class="answer">
+          <code>SEED_ADMIN_PASSWORD</code> is still in <code>.env</code>, so
+          re-seeding puts the default back. Blank it once step 1 is done.
+        </td>
+      </tr>
+      <tr>
+        <td><span class="num">3</span></td>
+        <td class="k">No limit on password attempts</td>
+        <td class="answer">
+          Nothing slows repeated guesses. On a private tunnel the network is the
+          gate; on anything public this has to be added first.
+        </td>
+      </tr>
+      <tr>
+        <td><span class="num">4</span></td>
+        <td class="k">Writes to QuickMail are live</td>
+        <td class="answer">
+          <code>QUICKMAIL_DRY_RUN=false</code>. Anyone who gets in can send email
+          as your sending domains.
+        </td>
+      </tr>
+      <tr>
+        <td><span class="num">5</span></td>
+        <td class="k">31 MB of personal data in a single file</td>
+        <td class="answer">
+          Fine on one machine. On a server it needs encryption at rest, a backup
+          plan, and it is GDPR-relevant — names, addresses, phone numbers and the
+          content of people's replies.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>One thing already fixed, worth knowing</h2>
+  <p>
+    Access was previously guarded only by whether a session <em>cookie existed</em>,
+    with nothing checking it further. A cookie containing arbitrary text was enough
+    to read every lead and every reply. That is now checked where the data is read,
+    and forged or expired sessions land on the sign-in page. It was found while
+    investigating a missing sidebar.
+  </p>
+
+  <h2>Running it on the local network today</h2>
+  <p>
+    Reaching the app from another machine on the same office network needs no
+    hosting decision at all:
+  </p>
+  <ul>
+    <li><strong>Use a production build.</strong> <code>npm run build</code> then
+      <code>npx next start -H 0.0.0.0</code>. The development server serves its
+      live-reload socket at <code>localhost</code>, so a browser on another machine
+      never finishes loading the page and the sign-in button silently does nothing.</li>
+    <li><strong>Set <code>AUTH_TRUST_HOST=true</code>.</strong> Without it, signing
+      in over an IP address fails while <code>localhost</code> keeps working.</li>
+    <li><strong>Allow the port inbound</strong> for the private network only.</li>
+    <li><strong>Browse to the machine's IP</strong>, not <code>localhost</code> —
+      on another machine that means <em>that</em> machine.</li>
+  </ul>
+
+  <div class="bar warn">
+    <strong>Do item 1 first.</strong> It takes thirty seconds and matters more
+    than which hosting option is chosen. Everything else on this page can wait for
+    a decision; that one cannot.
+  </div>
+
+  <div class="foot">
+    AI SDR Dashboard · prepared for the team · figures read from the live account
+    and the local database.
+  </div>
+</div>
+
+</body>
+</html>

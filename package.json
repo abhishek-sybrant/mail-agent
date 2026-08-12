@@ -16,15 +16,15 @@
     "show-replies": "tsx scripts/show-replies.ts",
     "classify-replies": "tsx scripts/classify-replies.ts",
     "eval-classify": "tsx scripts/eval-classify.ts",
-    "overview-pdf": "tsx scripts/build-overview-pdf.ts",
-    "summary-pdf": "tsx scripts/build-summary-pdf.ts",
     "unstop": "tsx scripts/unstop-prospect.ts",
     "set-password": "tsx scripts/set-password.ts",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "pdf": "tsx scripts/build-pdf.ts",
+    "docs": "tsx scripts/build-pdf.ts project-overview && tsx scripts/build-pdf.ts summary-2page --pages 2 && tsx scripts/build-pdf.ts hosting-options"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
