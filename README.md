@@ -15,7 +15,10 @@ and reviewed by a human before anything sends.
   filtering and CSV/XLSX import.
 - **Templates** — approved copy per service line, imported from `.docx` briefs.
   The agent prefers these over generating fresh copy when one matches.
-- **AI Inbox** — reply classification and draft responses, human-approved.
+- **Replies** — the real QuickMail reply threads, mirrored locally. Search and
+  sentiment filtering, an AI draft, a threaded send back through QuickMail, and
+  a stop that reaches the sequence and the do-not-contact list. Every reply is
+  forwarded to the manager.
 
 ## Stack
 
