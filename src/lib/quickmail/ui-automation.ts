@@ -43,23 +43,16 @@ export type UiResult = {
 };
 
 /**
- * Port of an Edge/Chrome the user launched themselves with
- * `--remote-debugging-port`. Attaching to their signed-in browser avoids
- * storing a QuickMail password anywhere, and avoids a second login.
+ * The automation browser runs on the server and the server starts it — see
+ * ./browser.ts. Re-exported here because this module's callers have always
+ * imported them from it.
  */
-export const CDP_PORT = Number(process.env.QUICKMAIL_UI_CDP_PORT ?? 9222);
-
-/** Is a debuggable browser listening right now? */
-export async function cdpAvailable(): Promise<boolean> {
-  try {
-    const r = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
+export { CDP_PORT, cdpAvailable } from "./browser";
+import {
+  CDP_PORT,
+  ensureDebuggableBrowser,
+  serverLabel,
+} from "./browser";
 
 export function uiAutomationEnabled(): boolean {
   if (process.env.QUICKMAIL_UI_AUTOMATION !== "true") return false;
@@ -612,17 +605,22 @@ export async function finishCampaignInUi(opts: {
        * flow this fragile is a feature — a wrong click is visible immediately
        * rather than discovered later via a campaign that never sent.
        */
-      if (!(await cdpAvailable())) {
+      /**
+       * Start it if it is not up. Whoever triggered this may be on a different
+       * machine entirely, where "start Edge with a debugging port" is advice
+       * they cannot act on and should never have been given.
+       */
+      const state = await ensureDebuggableBrowser();
+      if (!state.ok) {
         return {
           ok: false,
           unpaused: false,
           triggerSet: false,
           log,
-          error:
-            `No debuggable browser on port ${CDP_PORT}. Start Edge with ` +
-            `--remote-debugging-port=${CDP_PORT} (see README) and sign in to QuickMail.`,
+          error: `Could not start the automation browser on ${serverLabel()}: ${state.reason}.`,
         };
       }
+      if (state.started) log.push("started the automation browser on the server");
       browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
       const ctx = browser.contexts()[0];
       if (!ctx) throw new Error("Attached browser has no context");

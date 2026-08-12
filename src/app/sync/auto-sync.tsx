@@ -59,15 +59,21 @@ export function AutoSync({ initial }: { initial: SyncStatus }) {
   const [remaining, setRemaining] = useState<number | null>(null);
 
   useEffect(() => {
-    // No due time means no pass has completed yet, so one is due immediately.
-    if (!status.nextDueAt) {
-      setRemaining(0);
-      return;
-    }
+    // No due time means no pass has completed yet; that is derived below
+    // rather than stored, so there is nothing to tick.
+    if (!status.nextDueAt) return;
+
     const at = new Date(status.nextDueAt).getTime();
-    const tick = () => setRemaining(at - Date.now());
-    tick();
-    const t = setInterval(tick, 1000);
+    /**
+     * Only the interval sets state — never the effect body.
+     *
+     * A synchronous first call would render twice on mount, and the value it
+     * produced could not be computed during render anyway: it depends on the
+     * clock, which differs between the server and the browser and would fail
+     * hydration. The cost is that the countdown shows a placeholder for its
+     * first second.
+     */
+    const t = setInterval(() => setRemaining(at - Date.now()), 1000);
     return () => clearInterval(t);
   }, [status.nextDueAt]);
 
@@ -114,7 +120,8 @@ export function AutoSync({ initial }: { initial: SyncStatus }) {
   }
 
   const every = Math.round(status.intervalMs / 60_000);
-  const due = remaining !== null && remaining <= 0;
+  // A missing due time means nothing has completed yet, so a pass is due now.
+  const due = !status.nextDueAt || (remaining !== null && remaining <= 0);
 
   return (
     <Card>
@@ -139,6 +146,8 @@ export function AutoSync({ initial }: { initial: SyncStatus }) {
             <p className="text-4xl font-semibold tabular-nums">
               {busy || status.running ? (
                 <Loader2 className="size-8 animate-spin" />
+              ) : due ? (
+                "0:00"
               ) : remaining === null ? (
                 "—:—"
               ) : (

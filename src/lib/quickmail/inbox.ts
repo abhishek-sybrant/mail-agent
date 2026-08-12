@@ -1,5 +1,9 @@
 import { chromium, type Browser, type Page } from "playwright";
-import { CDP_PORT } from "./ui-automation";
+import {
+  CDP_PORT,
+  ensureDebuggableBrowser,
+  serverLabel,
+} from "./browser";
 
 /**
  * Reads real inbound replies out of QuickMail, and sends real replies back.
@@ -93,14 +97,17 @@ export type Session = {
  * for a CDP-attached browser, close() only drops the connection.
  */
 export async function withSession<T>(fn: (s: Session) => Promise<T>): Promise<T> {
-  const probe = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, {
-    signal: AbortSignal.timeout(2500),
-  }).catch(() => null);
-
-  if (!probe?.ok) {
+  /**
+   * The browser lives on the server, so the server starts it.
+   *
+   * This used to tell whoever hit the error to relaunch Edge — nonsense when
+   * the dashboard is open on a different machine, which is the normal case on
+   * a shared network. Nobody but the server can usefully act on it.
+   */
+  const state = await ensureDebuggableBrowser();
+  if (!state.ok) {
     throw new QuickMailSessionError(
-      `No debuggable browser on port ${CDP_PORT}. Close every Edge window, then ` +
-        `relaunch Edge with --remote-debugging-port=${CDP_PORT} and sign in to QuickMail.`,
+      `Could not start the automation browser on ${serverLabel()}: ${state.reason}.`,
     );
   }
 
@@ -134,8 +141,18 @@ export async function withSession<T>(fn: (s: Session) => Promise<T>): Promise<T>
 
     // A signed-out session renders the marketing site or bounces to /login.
     if (page.url().includes("/login") || !page.url().startsWith(ORIGIN)) {
+      /**
+       * The one step that still needs a person, and it is on the server.
+       *
+       * No QuickMail password is stored anywhere by design, so the session has
+       * to be established by hand once; the profile keeps it afterwards. Say
+       * where to do it, because whoever reads this is probably sitting
+       * somewhere else.
+       */
       throw new QuickMailSessionError(
-        "The attached browser is not signed in to QuickMail. Sign in, then retry.",
+        `The automation browser on ${serverLabel()} is not signed in to QuickMail. ` +
+          `Sign in there once — the session is then remembered and this is the ` +
+          `last time anyone has to touch it.`,
       );
     }
 
