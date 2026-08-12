@@ -31,19 +31,60 @@ const TEMPLATE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const TEMPLATE_SYSTEM = `You write cold outbound email for a B2B SDR team.
+/** Kept in step with the TemplateKind enum in the schema. */
+export type TemplateKind =
+  | "FIRST_MAIL"
+  | "FOLLOW_UP"
+  | "POSITIVE_REPLY"
+  | "NEGATIVE_REPLY";
+
+const TEMPLATE_BASE = `You write email for a B2B SDR team.
 
 Rules that matter more than style:
-- 80-140 words. Longer emails get deleted.
 - One clear ask at the end. Never two.
 - The ONLY merge tag that works is {{lead.first_name}}. Never use {{firstName}},
   {{companyName}} or any company/title tag — there is no company data behind
   them, so they would send as empty text. Name the company in words instead.
 - Do not write a sign-off name or signature. The sending mailbox appends its own.
 - No "I hope this email finds you well", no "circling back", no fake urgency.
-- Lead with the prospect's problem, not the product.
 - Plain text only. No markdown, no HTML, no emoji.
 - Write like a person emailing one other person.`;
+
+/**
+ * What changes between the four moments.
+ *
+ * One prompt for all of them produced a cold opener every time — a "follow up"
+ * that re-introduced the company as though they had never heard of it, and a
+ * reply to a rejection that pitched again. Length and intent are the parts that
+ * actually differ, so they are the parts stated separately.
+ */
+const KIND_GUIDANCE: Record<TemplateKind, string> = {
+  FIRST_MAIL: `This is a COLD OPENER to someone who has never heard from us.
+- 80-140 words. Longer emails get deleted.
+- Lead with the prospect's problem, not the product.
+- Earn the reply; do not assume any prior contact.`,
+
+  FOLLOW_UP: `This is a FOLLOW-UP to someone who did not reply to an earlier email.
+- 40-90 words. Shorter than the first email, always.
+- Add one new thing — an angle, a proof point, a shorter ask. Never resend the
+  pitch in different words.
+- Do not open by naming the company again or explaining who we are; they have
+  that email. Do not scold them for not replying.
+- No "just checking in", no "bumping this to the top of your inbox".`,
+
+  POSITIVE_REPLY: `This is a REPLY to a prospect who answered with interest.
+- 40-90 words. They are already engaged; do not sell again.
+- Answer what they actually asked, first.
+- Propose one concrete next step — a specific call length, or two times to pick
+  between. Never "let me know what works".`,
+
+  NEGATIVE_REPLY: `This is a REPLY to a prospect who declined or said no.
+- 25-60 words. Brief is respectful here.
+- Thank them plainly and accept the answer. Do not pitch again, do not ask why,
+  do not offer a discount, do not propose a call.
+- Leave one door open in a single sentence, without asking for anything.
+- If they asked to be removed, confirm that and say nothing else.`,
+};
 
 export async function generateTemplate(
   prompt: string,
@@ -53,6 +94,7 @@ export async function generateTemplate(
    * asked twice at the same temperature tends to repeat itself.
    */
   reject: string[] = [],
+  kind: TemplateKind = "FIRST_MAIL",
 ): Promise<GeneratedTemplate> {
   if (providerFor("generate") === "off") {
     throw new AiUnavailable(
@@ -76,7 +118,7 @@ export async function generateTemplate(
 
   return completeJson<GeneratedTemplate>({
     task: "generate",
-    system: TEMPLATE_SYSTEM,
+    system: `${TEMPLATE_BASE}\n\n${KIND_GUIDANCE[kind]}`,
     user,
     maxTokens: 1200,
     // Nudge upward with each rejection so later attempts diverge more.

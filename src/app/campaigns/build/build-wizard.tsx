@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  FileText,
   Loader2,
   Rocket,
   Sparkles,
@@ -20,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { fetchErrorMessage } from "@/lib/fetch-error";
 
 type Option = { id: string; label: string; hint?: string; recommended: boolean };
 type Question = {
@@ -36,6 +38,152 @@ type Plan = {
   follow_up_subject?: string;
   follow_up_body?: string;
 };
+
+type TemplateChoice = {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  category: string | null;
+  step: number | null;
+};
+
+type TemplateSets = {
+  first: TemplateChoice[];
+  follow_up: TemplateChoice[];
+  chosen_first_id: string | null;
+  chosen_follow_up_id: string | null;
+};
+
+/**
+ * One email in the sequence: pick approved copy, or have the AI write some.
+ *
+ * The same control for the first mail and every follow-up. Before this the
+ * opener could be re-drafted and the follow-up could only be typed over by
+ * hand, which quietly pushed people towards sending whatever the planner
+ * happened to produce for it.
+ */
+function StepEditor({
+  label,
+  hint,
+  kind,
+  templates,
+  chosenId,
+  subject,
+  body,
+  rows,
+  prompt,
+  onPick,
+  onSubject,
+  onBody,
+}: {
+  label: string;
+  hint: string;
+  kind: "FIRST_MAIL" | "FOLLOW_UP";
+  templates: TemplateChoice[];
+  chosenId: string | null;
+  subject: string;
+  body: string;
+  rows: number;
+  prompt: string;
+  onPick: (t: TemplateChoice | null) => void;
+  onSubject: (value: string) => void;
+  onBody: (value: string) => void;
+}) {
+  const [drafting, setDrafting] = useState(false);
+
+  async function draft() {
+    setDrafting(true);
+    try {
+      const res = await fetch("/api/templates/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Not saved — this is campaign copy, not a template for the library.
+        body: JSON.stringify({ prompt, kind }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Drafting failed");
+      onPick(null);
+      onSubject(json.template.subject);
+      onBody(json.template.body);
+      toast.success(`${label} redrafted`);
+    } catch (error) {
+      toast.error(fetchErrorMessage(error, "Drafting failed"));
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="flex-1 text-sm font-medium">{label}</p>
+        {chosenId ? (
+          <Badge variant="secondary" className="gap-1">
+            <FileText className="size-3" />
+            approved template
+          </Badge>
+        ) : (
+          <Badge variant="outline">written by AI</Badge>
+        )}
+      </div>
+      <p className="text-muted-foreground text-xs">{hint}</p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={chosenId ?? ""}
+          onChange={(e) => {
+            const t = templates.find((x) => x.id === e.target.value) ?? null;
+            onPick(t);
+            if (t) {
+              onSubject(t.subject);
+              onBody(t.body);
+            }
+          }}
+          className="border-input bg-background h-9 min-w-0 flex-1 rounded-md border px-2 text-sm"
+        >
+          <option value="">Fresh copy (not from a template)</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.category ? `${t.category} — ` : ""}
+              {t.subject}
+            </option>
+          ))}
+        </select>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={draft}
+          disabled={drafting || !prompt.trim()}
+          title={prompt.trim() ? undefined : "Describe the campaign first"}
+        >
+          {drafting ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Wand2 className="size-4" />
+          )}
+          Draft with AI
+        </Button>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Subject</Label>
+        <Input value={subject} onChange={(e) => onSubject(e.target.value)} />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Body</Label>
+        <Textarea
+          rows={rows}
+          className="font-mono text-sm"
+          value={body}
+          onChange={(e) => onBody(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
 
 const EXAMPLES = [
   "Cold campaign to heads of lease administration at US commercial real estate firms. Angle: manual abstraction eats 20 hours a week. Ask for a 15-minute call.",
@@ -57,6 +205,9 @@ export function BuildWizard({
   const [prompt, setPrompt] = useState("");
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [templates, setTemplates] = useState<TemplateSets | null>(null);
+  const [firstId, setFirstId] = useState<string | null>(null);
+  const [followUpId, setFollowUpId] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Record<string, Set<string>>>({});
   const [creating, setCreating] = useState(false);
@@ -80,6 +231,9 @@ export function BuildWizard({
 
       setPlan(json.plan);
       setQuestions(json.questions);
+      setTemplates(json.templates ?? null);
+      setFirstId(json.templates?.chosen_first_id ?? null);
+      setFollowUpId(json.templates?.chosen_follow_up_id ?? null);
       // Pre-tick whatever the planner recommended.
       const seeded: Record<string, Set<string>> = {};
       for (const q of json.questions as Question[]) {
@@ -262,36 +416,42 @@ export function BuildWizard({
 
               <Separator />
 
-              <div className="space-y-1.5">
-                <Label className="text-xs">Subject</Label>
-                <Input
-                  value={plan.subject}
-                  onChange={(e) => setPlan({ ...plan, subject: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Body</Label>
-                <Textarea
-                  rows={10}
-                  className="font-mono text-sm"
-                  value={plan.body}
-                  onChange={(e) => setPlan({ ...plan, body: e.target.value })}
-                />
-              </div>
+              <StepEditor
+                label="Email 1 — first mail"
+                hint="The opener. Goes to everyone in the list."
+                kind="FIRST_MAIL"
+                templates={templates?.first ?? []}
+                chosenId={firstId}
+                subject={plan.subject}
+                body={plan.body}
+                rows={10}
+                prompt={prompt}
+                onPick={(t) => setFirstId(t?.id ?? null)}
+                onSubject={(v) => setPlan({ ...plan, subject: v })}
+                onBody={(v) => setPlan({ ...plan, body: v })}
+              />
 
-              {plan.follow_up_body && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Follow-up body</Label>
-                  <Textarea
-                    rows={6}
-                    className="font-mono text-sm"
-                    value={plan.follow_up_body}
-                    onChange={(e) =>
-                      setPlan({ ...plan, follow_up_body: e.target.value })
-                    }
-                  />
-                </div>
-              )}
+              <StepEditor
+                label="Email 2 — follow-up"
+                hint="Sent 3 business days later, in the same thread, to anyone who has not replied."
+                kind="FOLLOW_UP"
+                templates={templates?.follow_up ?? []}
+                chosenId={followUpId}
+                subject={plan.follow_up_subject ?? ""}
+                body={plan.follow_up_body ?? ""}
+                rows={6}
+                prompt={prompt}
+                onPick={(t) => setFollowUpId(t?.id ?? null)}
+                onSubject={(v) => setPlan({ ...plan, follow_up_subject: v })}
+                onBody={(v) => setPlan({ ...plan, follow_up_body: v })}
+              />
+
+              {/**
+               * The follow-up is always offered now, even when the planner
+               * returned nothing for it. It used to be hidden unless the model
+               * happened to write one, which made a two-email sequence look
+               * impossible rather than simply unwritten.
+               */}
             </CardContent>
           </Card>
 

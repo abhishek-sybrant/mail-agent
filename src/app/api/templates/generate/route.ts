@@ -1,16 +1,25 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { generateTemplate } from "@/lib/ai/generate";
+import { generateTemplate, type TemplateKind } from "@/lib/ai/generate";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
+
+const KINDS = [
+  "FIRST_MAIL",
+  "FOLLOW_UP",
+  "POSITIVE_REPLY",
+  "NEGATIVE_REPLY",
+] as const;
 
 /**
  * POST /api/templates/generate
  *
- * Body: { prompt: string, save?: boolean }
+ * Body: { prompt: string, kind?: TemplateKind, category?: string, save?: boolean }
  *
  * Turns a plain-language brief into a subject + body. Nothing is persisted
- * unless `save` is set, so the user can regenerate freely.
+ * unless `save` is set, so the user can regenerate freely. `kind` decides what
+ * sort of email gets written — a follow-up and a reply to a rejection are not
+ * the same email with a different label.
  */
 export async function POST(request: Request) {
   const session = await auth();
@@ -29,8 +38,13 @@ export async function POST(request: Request) {
     ? parsed.data.reject.filter((v): v is string => typeof v === "string").slice(0, 6)
     : [];
 
+  const kind = (KINDS as readonly string[]).includes(String(parsed.data.kind))
+    ? (parsed.data.kind as TemplateKind)
+    : "FIRST_MAIL";
+  const category = optionalString(parsed.data.category);
+
   try {
-    const generated = await generateTemplate(prompt, reject);
+    const generated = await generateTemplate(prompt, reject, kind);
 
     if (parsed.data.save === true) {
       const saved = await prisma.template.create({
@@ -38,13 +52,22 @@ export async function POST(request: Request) {
           name: generated.name,
           subject: generated.subject,
           body: generated.body,
+          preview: generated.preview,
+          kind,
+          category,
           ai_prompt: prompt,
+          source: "AI",
         },
       });
       return NextResponse.json({ ok: true, template: saved, saved: true });
     }
 
-    return NextResponse.json({ ok: true, template: generated, saved: false });
+    // Hand the kind back so an unsaved draft keeps it through the editor.
+    return NextResponse.json({
+      ok: true,
+      template: { ...generated, kind, category },
+      saved: false,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
