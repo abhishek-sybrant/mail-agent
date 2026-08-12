@@ -41,7 +41,7 @@ function stamp() {
 
 async function tick() {
   try {
-    if (isSyncRunning()) return;
+    if (await isSyncRunning()) return;
 
     if (await syncIsDue()) {
       console.log(`[sync ${stamp()}] starting the pass`);

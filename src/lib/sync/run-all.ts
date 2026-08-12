@@ -63,15 +63,36 @@ export type SyncRunSummary = {
 };
 
 /**
- * In-process guard against overlapping passes.
+ * Guard against overlapping passes.
  *
- * A lead walk can run for a quarter of an hour; if a manual "Sync now" landed
- * on top of the timer they would share the rate limit and both crawl.
+ * A lead walk runs for a quarter of an hour; two at once share the rate limit,
+ * both crawl, and they overwrite each other's cursor.
+ *
+ * The in-flight promise alone is not enough. The timer lives in the
+ * instrumentation hook and the button calls a route handler, and Next.js gives
+ * those separate instances of this module — so each had its own idea of
+ * whether a pass was running, and a manual click landed straight on top of the
+ * timer's pass. The open row in the database is the one fact both instances
+ * share, so that is what decides.
  */
 let running: Promise<SyncRunSummary> | null = null;
 
-export function isSyncRunning(): boolean {
-  return running !== null;
+/** An open run older than this was abandoned; it must not block forever. */
+const STALE_AFTER_MS = SYNC_INTERVAL_MS * 2;
+
+async function openRun() {
+  const row = await prisma.syncRun.findFirst({
+    where: { finished_at: null, interrupted: false },
+    orderBy: { started_at: "desc" },
+  });
+  if (!row) return null;
+  if (Date.now() - row.started_at.getTime() > STALE_AFTER_MS) return null;
+  return row;
+}
+
+export async function isSyncRunning(): Promise<boolean> {
+  if (running) return true;
+  return (await openRun()) !== null;
 }
 
 async function part(
@@ -96,10 +117,9 @@ function skip(name: string, why: string): PartResult {
   return { part: name, ok: true, detail: why, ms: 0, skipped: true };
 }
 
-/** The most recent pass, finished or still going. */
-export async function lastSyncRun(): Promise<SyncRunSummary | null> {
-  const row = await prisma.syncRun.findFirst({ orderBy: { started_at: "desc" } });
-  if (!row) return null;
+type SyncRunRow = Awaited<ReturnType<typeof prisma.syncRun.findFirst>>;
+
+function toSummary(row: NonNullable<SyncRunRow>): SyncRunSummary {
   return {
     id: row.id,
     trigger: row.trigger,
@@ -111,6 +131,12 @@ export async function lastSyncRun(): Promise<SyncRunSummary | null> {
     lead_total: row.lead_total,
     lead_cursor: row.lead_cursor,
   };
+}
+
+/** The most recent pass, finished or still going. */
+export async function lastSyncRun(): Promise<SyncRunSummary | null> {
+  const row = await prisma.syncRun.findFirst({ orderBy: { started_at: "desc" } });
+  return row ? toSummary(row) : null;
 }
 
 /**
@@ -190,6 +216,15 @@ export async function runFullSync(
 ): Promise<SyncRunSummary> {
   // Join the pass already in flight rather than starting a competing one.
   if (running) return running;
+
+  /**
+   * A pass started by the other module instance shows up only as an open row.
+   * Report it rather than starting a second one — there is no promise here to
+   * await, so the caller gets what that pass has recorded so far.
+   */
+  const open = await openRun();
+  if (open) return toSummary(open);
+
   running = execute(trigger, onPart).finally(() => {
     running = null;
   });

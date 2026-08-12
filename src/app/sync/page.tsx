@@ -12,18 +12,19 @@ import { SyncPanel } from "./sync-panel";
 export const dynamic = "force-dynamic";
 
 export default async function SyncPage() {
-  const [localLeads, localCampaigns, fromQuickmail, last, nextDueAt] =
+  const [localLeads, localCampaigns, fromQuickmail, last, nextDueAt, running] =
     await Promise.all([
       prisma.lead.count(),
       prisma.campaign.count({ where: { quickmail_campaign_id: { not: null } } }),
       prisma.lead.count({ where: { quickmail_lead_id: { not: null } } }),
       lastSyncRun(),
       nextSyncDueAt(),
+      isSyncRunning(),
     ]);
 
   const status: SyncStatus = {
     intervalMs: SYNC_INTERVAL_MS,
-    running: isSyncRunning(),
+    running,
     last,
     nextDueAt,
   };

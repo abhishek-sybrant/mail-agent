@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { fetchErrorMessage } from "@/lib/fetch-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,7 +147,7 @@ function SelectExisting({
         setPicked(new Map(rows.map((l) => [l.id, l])));
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed");
+      toast.error(fetchErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -428,7 +429,7 @@ function UploadSheet({ onPicked }: { onPicked: (p: PickedLeads) => void }) {
         toast.success(`${json.valid} valid, ${json.invalid} rejected`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed");
+      toast.error(fetchErrorMessage(error));
     } finally {
       setBusy(false);
     }

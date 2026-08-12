@@ -22,8 +22,12 @@ import {
 export const maxDuration = 3600;
 
 async function status() {
-  const [last, nextDueAt] = await Promise.all([lastSyncRun(), nextSyncDueAt()]);
-  return { intervalMs: SYNC_INTERVAL_MS, running: isSyncRunning(), last, nextDueAt };
+  const [last, nextDueAt, running] = await Promise.all([
+    lastSyncRun(),
+    nextSyncDueAt(),
+    isSyncRunning(),
+  ]);
+  return { intervalMs: SYNC_INTERVAL_MS, running, last, nextDueAt };
 }
 
 export async function GET() {

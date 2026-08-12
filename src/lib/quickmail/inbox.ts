@@ -116,7 +116,20 @@ export async function withSession<T>(fn: (s: Session) => Promise<T>): Promise<T>
       await page.goto(`${ORIGIN}/workspace/${workspaceId()}/opportunities`, {
         waitUntil: "domcontentloaded",
       });
-      await page.waitForTimeout(4000);
+
+      /**
+       * Wait for the session to resolve rather than sampling once.
+       *
+       * QuickMail sits on /login for a moment while it works out who you are,
+       * then swaps to the workspace. A single check after a fixed four seconds
+       * caught that intermediate state and called a signed-in browser signed
+       * out — which failed the reply pull, and skipped classification and
+       * manager forwarding with it, for a whole pass. A genuinely signed-out
+       * browser stays on /login and still fails, just fifteen seconds later.
+       */
+      for (let i = 0; i < 15 && page.url().includes("/login"); i++) {
+        await page.waitForTimeout(1000);
+      }
     }
 
     // A signed-out session renders the marketing site or bounces to /login.
