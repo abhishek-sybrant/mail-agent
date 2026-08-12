@@ -547,3 +547,50 @@ enum SuppressionReason {
   NEGATIVE_REPLY
   MANUAL
 }
+
+/// One pass of the automatic sync.
+///
+/// Every part is recorded whether it succeeded or not, because the parts fail
+/// independently: the reply pull needs a signed-in browser and stops working
+/// the moment Edge is closed, while campaigns and leads keep going over the
+/// plain API. A run where four parts worked and one didn't is the normal case,
+/// and the panel has to be able to say which.
+model SyncRun {
+  id String @id @default(cuid())
+
+  /// timer | manual | cron — how this run was started.
+  trigger     String
+  started_at  DateTime  @default(now())
+  finished_at DateTime?
+
+  /// True only when every part finished without error.
+  ok Boolean @default(false)
+
+  /**
+   * The server stopped before this pass got through its parts.
+   *
+   * Distinct from `ok`, and the distinction decides when the next pass runs: a
+   * pass that ran everything and had a part fail still counts as this hour's
+   * pass, while one that was cut short did not happen and must not hold the
+   * schedule for an hour on the strength of a row it left behind.
+   */
+  interrupted Boolean @default(false)
+
+  /// Per-part outcome: [{ part, ok, detail, ms, error }].
+  parts String @default("[]")
+
+  /**
+   * Where the resumable lead walk got to.
+   *
+   * QuickMail caps leads at 10 per page, so a full pass over ~50,000 of them is
+   * about 4,800 requests — well over an hour at the rate limit, and therefore
+   * impossible to finish inside an hourly slot. Each run walks a bounded slice
+   * and hands the cursor to the next one; when the walk reaches the end the
+   * cursor resets and the next pass starts over.
+   */
+  lead_cursor String?
+  lead_done   Int     @default(0)
+  lead_total  Int     @default(0)
+
+  @@index([started_at])
+}
