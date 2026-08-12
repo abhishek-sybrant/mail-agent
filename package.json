@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "serve": "tsx scripts/serve.ts",
     "lint": "eslint",
     "scheduler": "tsx scripts/scheduler.ts",
     "finish-campaign": "tsx scripts/finish-campaign.ts",
