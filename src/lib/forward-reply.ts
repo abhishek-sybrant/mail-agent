@@ -116,6 +116,16 @@ function pendingWhere() {
   return {
     handled_at: null,
     forwarded_at: null,
+    /**
+     * There has to be something to forward.
+     *
+     * QuickMail files LinkedIn outreach as opportunities too, and those arrive
+     * with no subject, no inbox, no todo and — the part that matters — no
+     * inbound message. They are not replies. Forty-eight of them had collected
+     * at the head of the queue, where they could never be sent and were retried
+     * every hour, so a mailbox showing "117 waiting" was really 69.
+     */
+    messages: { some: { direction: "IN" as const } },
     ...(scope === "all" ? {} : { is_ooo: false }),
     ...(scope === "actionable" ? { reply_type: { in: [...ACTIONABLE] } } : {}),
   };
@@ -337,7 +347,16 @@ export async function forwardPending(limit?: number): Promise<{
   const [pending, total] = await Promise.all([
     prisma.qmConversation.findMany({
       where,
-      orderBy: { waiting_since: "desc" },
+      /**
+       * Untried threads first, then newest.
+       *
+       * A thread QuickMail refuses outright — "you don't have the permission to
+       * todo N" — is newest-first forever, so it took a slot in every batch and
+       * the ones behind it never moved. Sorting by attempts lets those sink
+       * while the queue keeps draining, and nothing is dropped: they still come
+       * round once everything untried has gone.
+       */
+      orderBy: [{ forward_attempts: "asc" }, { waiting_since: "desc" }],
       take: batch,
       select: { id: true },
     }),
@@ -349,8 +368,20 @@ export async function forwardPending(limit?: number): Promise<{
 
   for (const c of pending) {
     const result = await forwardReply(c.id);
-    if (result.sent) sent++;
-    else reasons.push(result.reason);
+    if (result.sent) {
+      sent++;
+      continue;
+    }
+    reasons.push(result.reason);
+    // Recorded so the same thread is not tried ahead of untouched ones again,
+    // and so the panel can say what QuickMail actually objected to.
+    await prisma.qmConversation.update({
+      where: { id: c.id },
+      data: {
+        forward_attempts: { increment: 1 },
+        forward_error: result.reason.slice(0, 300),
+      },
+    });
   }
 
   return {

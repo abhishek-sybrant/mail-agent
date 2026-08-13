@@ -491,6 +491,20 @@ model QmConversation {
   forwarded_at DateTime?
   forwarded_to String?
 
+  /**
+   * Failed attempts to forward this thread, and the last reason.
+   *
+   * Some threads can never be forwarded: QuickMail answers "you don't have the
+   * permission to todo N" for conversations owned by an inbox the signed-in
+   * user cannot act on. Without a count, the queue is ordered newest-first and
+   * those threads sit at its head being retried every hour, using up the whole
+   * batch and starving the ones that would have gone. Ordering by attempts puts
+   * untried threads first and lets repeat failures sink, without ever silently
+   * discarding one.
+   */
+  forward_attempts Int     @default(0)
+  forward_error    String?
+
   synced_at  DateTime @default(now())
   created_at DateTime @default(now())
 

@@ -80,6 +80,22 @@ let running: Promise<SyncRunSummary> | null = null;
 /** An open run older than this was abandoned; it must not block forever. */
 const STALE_AFTER_MS = SYNC_INTERVAL_MS * 2;
 
+/**
+ * How long a single pass may take before it gives up on its remaining parts.
+ *
+ * A pass must not outlive the interval that will start the next one. This is
+ * not theoretical: a laptop that sleeps mid-pass freezes the process inside
+ * whatever request it was making, and one real pass sat between two parts for
+ * twelve hours before the machine woke and it carried on. Nothing else ran in
+ * all that time, because the pass still held the lock — so the fix is for the
+ * pass to notice how long it has been and stop, rather than for the guard to
+ * be talked out of trusting it.
+ */
+const PASS_DEADLINE_MS = SYNC_INTERVAL_MS;
+
+/** Thrown to abandon the rest of a pass that has outlived its interval. */
+class PassExpired extends Error {}
+
 async function openRun() {
   const row = await prisma.syncRun.findFirst({
     where: { finished_at: null, interrupted: false },
@@ -265,124 +281,170 @@ async function execute(
       where: { id: run.id },
       data: { parts: JSON.stringify(parts) },
     });
+
+    /**
+     * Checked between parts, which is the only place it can be.
+     *
+     * A part already in flight cannot be interrupted from here, so the deadline
+     * takes effect as soon as one returns. That is enough for the case it
+     * exists for: a machine that slept mid-request wakes, the part completes
+     * against twelve-hour-old state, and the pass stops there instead of
+     * carrying on and holding the lock through the parts that remain.
+     */
+    if (Date.now() - run.started_at.getTime() > PASS_DEADLINE_MS) {
+      throw new PassExpired();
+    }
     return r;
   };
 
-  // 1. Campaign windows. Cheap, and the most time-sensitive thing here — a
-  //    campaign due to start should not wait on a lead walk.
-  await add(
-    await part("Campaign schedules", async () => {
-      const r = await applyDueSchedules();
-      const bits = [
-        r.started.length ? `${r.started.length} started` : null,
-        r.ended.length ? `${r.ended.length} ended` : null,
-      ].filter(Boolean);
-      return bits.length ? bits.join(", ") : "nothing due";
-    }),
-  );
-
-  if (!isConfigured()) {
-    await add(skip("Campaigns", "QUICKMAIL_API_KEY is not set"));
-    await add(skip("Mailboxes", "QUICKMAIL_API_KEY is not set"));
-  } else {
-    // 2. Campaign stats — one request.
-    await add(
-      await part("Campaigns", async () => {
-        const r = await syncCampaigns();
-        return `${r.total} mirrored — ${r.imported} new, ${r.updated} updated`;
-      }),
-    );
-
-    // 3. Sending mailboxes, so the composer never sees a stale sender list.
-    await add(
-      await part("Mailboxes", async () => {
-        const r = await syncMailboxes();
-        return `${r.total} mailboxes`;
-      }),
-    );
-  }
-
-  // 4. Replies: pull, label, forward. Needs the signed-in browser session.
-  const pull = await add(
-    await part("Replies", async () => {
-      const r = await withSession((s) => pullReplies(s, { limit: REPLY_LIMIT }));
-      return (
-        `${r.conversations} of ${r.total} threads, ${r.messages} messages` +
-        (r.refreshed ? `, ${r.refreshed} refreshed` : "")
-      );
-    }),
-  );
-
-  /**
-   * Only label and forward when the pull worked.
-   *
-   * Running them anyway would produce two more failures describing the same
-   * closed browser, which buries the one line that says what to actually fix.
-   */
-  if (pull.ok) {
-    await add(
-      await part("Classify replies", async () => {
-        const r = await classifyPending({ limit: 100 });
-        if (r.considered === 0) return "nothing unlabelled";
-        const tally = Object.entries(r.tally)
-          .map(([k, v]) => `${k.toLowerCase()}=${v}`)
-          .join(" ");
-        return `${r.classified} labelled${r.failed ? `, ${r.failed} failed` : ""}${tally ? ` — ${tally}` : ""}`;
-      }),
-    );
-
-    await add(
-      forwardingConfigured()
-        ? await part("Forward to manager", async () => {
-            const r = await forwardPending();
-            if (r.sent === 0 && r.failed === 0) return "nothing to forward";
-            return (
-              `${r.sent} sent` +
-              (r.failed ? `, ${r.failed} failed` : "") +
-              (r.remaining ? `, ${r.remaining} still queued` : "")
-            );
-          })
-        : skip("Forward to manager", "MANAGER_EMAIL is not set"),
-    );
-  } else {
-    await add(skip("Classify replies", "skipped — the reply pull failed"));
-    await add(skip("Forward to manager", "skipped — the reply pull failed"));
-  }
-
-  // 5. The long one, last. A bounded slice of the resumable walk.
+  // Declared out here so a pass cut short still records where the walk got to.
   let cursor = previous?.lead_cursor ?? null;
   let done = previous?.lead_done ?? 0;
   let total = 0;
+  let expired = false;
 
-  await add(
-    !isConfigured()
-      ? skip("Leads", "QUICKMAIL_API_KEY is not set")
-      : await part("Leads", async () => {
-          const r = await syncLeads({ cursor, maxPages: LEAD_PAGES });
-          total = r.totalCount;
-          done += r.processed;
+  try {
+    // 1. Campaign windows. Cheap, and the most time-sensitive thing here — a
+    //    campaign due to start should not wait on a lead walk.
+    await add(
+      await part("Campaign schedules", async () => {
+        const r = await applyDueSchedules();
+        const bits = [
+          r.started.length ? `${r.started.length} started` : null,
+          r.ended.length ? `${r.ended.length} ended` : null,
+        ].filter(Boolean);
+        return bits.length ? bits.join(", ") : "nothing due";
+      }),
+    );
 
-          if (r.hasNext) {
-            cursor = r.cursor;
-            const pct = total ? ((done / total) * 100).toFixed(0) : "0";
-            return `${r.processed} walked (${done}/${total}, ${pct}%) — ${r.imported} new, ${r.updated} linked`;
-          }
-
-          // Reached the end: clear the cursor so the next pass starts over.
-          cursor = null;
-          const walked = done;
-          done = 0;
-          return `full pass complete — ${walked} walked, ${r.imported} new, ${r.updated} linked`;
+    if (!isConfigured()) {
+      await add(skip("Campaigns", "QUICKMAIL_API_KEY is not set"));
+      await add(skip("Mailboxes", "QUICKMAIL_API_KEY is not set"));
+    } else {
+      // 2. Campaign stats — one request.
+      await add(
+        await part("Campaigns", async () => {
+          const r = await syncCampaigns();
+          return `${r.total} mirrored — ${r.imported} new, ${r.updated} updated`;
         }),
-  );
+      );
 
-  const ok = parts.every((p) => p.ok);
+      // 3. Sending mailboxes, so the composer never sees a stale sender list.
+      await add(
+        await part("Mailboxes", async () => {
+          const r = await syncMailboxes();
+          return `${r.total} mailboxes`;
+        }),
+      );
+    }
+
+    // 4. Replies: pull, label, forward. Needs the signed-in browser session.
+    const pull = await add(
+      await part("Replies", async () => {
+        const r = await withSession((s) =>
+          pullReplies(s, { limit: REPLY_LIMIT }),
+        );
+        return (
+          `${r.conversations} of ${r.total} threads, ${r.messages} messages` +
+          (r.refreshed ? `, ${r.refreshed} refreshed` : "")
+        );
+      }),
+    );
+
+    /**
+     * Only label and forward when the pull worked.
+     *
+     * Running them anyway would produce two more failures describing the same
+     * closed browser, which buries the one line that says what to actually fix.
+     */
+    if (pull.ok) {
+      await add(
+        await part("Classify replies", async () => {
+          const r = await classifyPending({ limit: 100 });
+          if (r.considered === 0) return "nothing unlabelled";
+          const tally = Object.entries(r.tally)
+            .map(([k, v]) => `${k.toLowerCase()}=${v}`)
+            .join(" ");
+          return `${r.classified} labelled${r.failed ? `, ${r.failed} failed` : ""}${tally ? ` — ${tally}` : ""}`;
+        }),
+      );
+
+      await add(
+        forwardingConfigured()
+          ? await part("Forward to manager", async () => {
+              const r = await forwardPending();
+              if (r.sent === 0 && r.failed === 0) return "nothing to forward";
+              return (
+                `${r.sent} sent` +
+                (r.failed ? `, ${r.failed} failed` : "") +
+                (r.remaining ? `, ${r.remaining} still queued` : "") +
+                /**
+                 * Say why it failed, not just that it did.
+                 *
+                 * A count on its own leaves nothing to act on, and the thread
+                 * keeps its null forwarded_at and is retried next pass — so a
+                 * permanent failure looks identical to a transient one until
+                 * someone notices the same number every hour.
+                 */
+                (r.reasons.length ? ` — ${r.reasons[0]}` : "")
+              );
+            })
+          : skip("Forward to manager", "MANAGER_EMAIL is not set"),
+      );
+    } else {
+      await add(skip("Classify replies", "skipped — the reply pull failed"));
+      await add(skip("Forward to manager", "skipped — the reply pull failed"));
+    }
+
+    // 5. The long one, last. A bounded slice of the resumable walk.
+    await add(
+      !isConfigured()
+        ? skip("Leads", "QUICKMAIL_API_KEY is not set")
+        : await part("Leads", async () => {
+            const r = await syncLeads({ cursor, maxPages: LEAD_PAGES });
+            total = r.totalCount;
+            done += r.processed;
+
+            if (r.hasNext) {
+              cursor = r.cursor;
+              const pct = total ? ((done / total) * 100).toFixed(0) : "0";
+              return `${r.processed} walked (${done}/${total}, ${pct}%) — ${r.imported} new, ${r.updated} linked`;
+            }
+
+            // Reached the end: clear the cursor so the next pass starts over.
+            cursor = null;
+            const walked = done;
+            done = 0;
+            return `full pass complete — ${walked} walked, ${r.imported} new, ${r.updated} linked`;
+          }),
+    );
+  } catch (error) {
+    if (!(error instanceof PassExpired)) throw error;
+
+    /**
+     * Recorded as a part so the panel says what happened, and marked
+     * interrupted so it does not count as this hour's pass — the parts it
+     * never reached did not run, and the next tick should do them.
+     */
+    expired = true;
+    const hours = (Date.now() - run.started_at.getTime()) / 3_600_000;
+    parts.push({
+      part: "Timed out",
+      ok: false,
+      detail: `the pass ran for ${hours.toFixed(1)}h — abandoned the remaining steps`,
+      ms: 0,
+    });
+  }
+
+  const ok = !expired && parts.every((p) => p.ok);
 
   await prisma.syncRun.update({
     where: { id: run.id },
     data: {
       finished_at: new Date(),
       ok,
+      // A pass that ran out of time did not happen for scheduling purposes.
+      interrupted: expired,
       parts: JSON.stringify(parts),
       lead_cursor: cursor,
       lead_done: done,
