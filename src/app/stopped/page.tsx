@@ -163,6 +163,29 @@ export default async function StoppedPage({
           }))),
   ];
 
+  /**
+   * Count what is actually on the list, both systems together.
+   *
+   * The pills counted only local rows while the list below showed QuickMail's
+   * blocks too, so a page listing four entries announced "All 1". Overlap is
+   * subtracted with a targeted query rather than by trusting the loaded page,
+   * which is capped at 300 and would undercount once the bounce import lands.
+   */
+  const qmEmailList = quickmail.emails.map((e) => e.email.toLowerCase());
+  const qmDomainList = quickmail.domains.map((d) => d.toLowerCase());
+
+  const [emailOverlap, domainOverlap] = await Promise.all([
+    qmEmailList.length
+      ? prisma.suppression.count({ where: { email: { in: qmEmailList } } })
+      : 0,
+    qmDomainList.length
+      ? prisma.suppressedDomain.count({ where: { domain: { in: qmDomainList } } })
+      : 0,
+  ]);
+
+  const addressCount = addressTotal + qmEmailList.length - emailOverlap;
+  const domainCount = domainTotal + qmDomainList.length - domainOverlap;
+
   const qmTotal = quickmail.emails.length + quickmail.domains.length;
   const localTotal = addressTotal + domainTotal;
 
@@ -173,10 +196,10 @@ export default async function StoppedPage({
         description={
           localTotal + qmTotal === 0
             ? "Nothing is blocked yet."
-            : `${addressTotal} address${addressTotal === 1 ? "" : "es"} and ${domainTotal} domain${domainTotal === 1 ? "" : "s"} blocked here` +
+            : `${addressCount} address${addressCount === 1 ? "" : "es"} and ${domainCount} domain${domainCount === 1 ? "" : "s"} will never be emailed` +
               (quickmail.error
-                ? " — QuickMail's own list could not be read"
-                : `, ${qmTotal} in QuickMail.`)
+                ? " — and QuickMail's own list could not be read, so there may be more."
+                : ".")
         }
       />
       <div className="max-w-5xl p-8">
@@ -184,8 +207,8 @@ export default async function StoppedPage({
           items={[...items, ...quickmailOnly]}
           query={q}
           kind={kind}
-          addressTotal={addressTotal}
-          domainTotal={domainTotal}
+          addressTotal={addressCount}
+          domainTotal={domainCount}
           repeatOffenders={repeats}
           quickmailError={quickmail.error}
         />

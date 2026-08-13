@@ -230,38 +230,42 @@ export function AutoSync({ initial }: { initial: SyncStatus }) {
          * pass, which also stopped campaign windows being applied on time.
          */}
         <div className="divide-y rounded-md border">
-          {status.switches.map((s) => (
-            <div key={s.key} className="flex items-start gap-3 px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 text-sm font-medium">
-                  {s.label}
-                  {!s.on && (
-                    <span className="text-destructive text-xs font-normal">
-                      stopped
-                    </span>
+          {/* Forwarding is stopped from the Managers tab, beside the people it
+              sends to — this page keeps only what is about the sync itself. */}
+          {status.switches
+            .filter((s) => s.key !== "sync.forward")
+            .map((s) => (
+              <div key={s.key} className="flex items-start gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 text-sm font-medium">
+                    {s.label}
+                    {!s.on && (
+                      <span className="text-destructive text-xs font-normal">
+                        stopped
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {s.on ? s.blurb : s.offWarning}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={s.on ? "outline" : "default"}
+                  disabled={flipping === s.key}
+                  onClick={() => flip(s)}
+                >
+                  {flipping === s.key ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : s.on ? (
+                    <Square className="size-4" />
+                  ) : (
+                    <Play className="size-4" />
                   )}
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  {s.on ? s.blurb : s.offWarning}
-                </p>
+                  {s.on ? "Stop" : "Start"}
+                </Button>
               </div>
-              <Button
-                size="sm"
-                variant={s.on ? "outline" : "default"}
-                disabled={flipping === s.key}
-                onClick={() => flip(s)}
-              >
-                {flipping === s.key ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : s.on ? (
-                  <Square className="size-4" />
-                ) : (
-                  <Play className="size-4" />
-                )}
-                {s.on ? "Stop" : "Start"}
-              </Button>
-            </div>
-          ))}
+            ))}
         </div>
 
         {status.last ? (

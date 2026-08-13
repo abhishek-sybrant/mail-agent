@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Send,
   Upload,
+  UserRound,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ const NAV = [
   { href: "/sync", label: "QuickMail sync", icon: RefreshCw },
   { href: "/templates", label: "Templates", icon: PenSquare },
   { href: "/replies", label: "Replies", icon: MailOpen, badge: "replies" as const },
+  { href: "/managers", label: "Managers", icon: UserRound },
   { href: "/stopped", label: "Stopped", icon: Ban },
   { href: "/approvals", label: "Approvals", icon: CheckSquare, badge: "pending" as const },
 ];

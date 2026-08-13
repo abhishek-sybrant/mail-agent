@@ -88,7 +88,9 @@ export function TemplateStudio({
     [templates, kind],
   );
 
-  const meta = kindMeta(draft.kind);
+  // One source for the category: the cards above. Reading it off the
+  // draft is what let the two disagree.
+  const meta = kindMeta(kind);
 
   function set<K extends keyof TemplateRow>(key: K, value: TemplateRow[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -113,13 +115,13 @@ export function TemplateStudio({
         // The kind decides what gets written, not just where it is filed.
         body: JSON.stringify({
           prompt,
-          kind: draft.kind,
+          kind,
           category: draft.category ?? undefined,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Generation failed");
-      setDraft({ ...blank(draft.kind), ...json.template, category: draft.category });
+      setDraft({ ...blank(kind), ...json.template, category: draft.category });
       toast.success("Draft generated — review before saving");
     } catch (error) {
       toast.error(fetchErrorMessage(error));
@@ -143,7 +145,7 @@ export function TemplateStudio({
           name: draft.name,
           subject: draft.subject,
           body: draft.body,
-          kind: draft.kind,
+          kind,
           category: draft.category ?? "",
         }),
       });
@@ -264,11 +266,11 @@ export function TemplateStudio({
                 rows={3}
                 value={prompt}
                 placeholder={
-                  draft.kind === "FIRST_MAIL"
+                  kind === "FIRST_MAIL"
                     ? "Heads of lease administration at US commercial real estate firms. Angle: manual abstraction eats 20 hours a week. Ask for a 15-minute call."
-                    : draft.kind === "FOLLOW_UP"
+                    : kind === "FOLLOW_UP"
                       ? "Chase the lease abstraction opener. New angle: a client cut turnaround from 6 days to 1."
-                      : draft.kind === "POSITIVE_REPLY"
+                      : kind === "POSITIVE_REPLY"
                         ? "They asked what our turnaround looks like. Answer, then offer Tuesday or Wednesday afternoon."
                         : "They said the budget is gone for this year. Accept it, leave the door open for next year."
                 }
@@ -307,45 +309,34 @@ export function TemplateStudio({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Category</Label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {KINDS.map((k) => (
-                      <button
-                        key={k.value}
-                        onClick={() => set("kind", k.value)}
-                        className={cn(
-                          "rounded-md border px-2 py-1.5 text-xs transition-colors",
-                          draft.kind === k.value
-                            ? "border-primary bg-primary/10 text-primary font-medium"
-                            : "hover:bg-accent",
-                        )}
-                      >
-                        {k.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="line">Service line</Label>
-                  <Input
-                    id="line"
-                    list="service-lines"
-                    value={draft.category ?? ""}
-                    placeholder="Manual Lease Abstraction"
-                    onChange={(e) => set("category", e.target.value || null)}
-                  />
-                  <datalist id="service-lines">
-                    {serviceLines.map((l) => (
-                      <option key={l} value={l} />
-                    ))}
-                  </datalist>
-                  <p className="text-muted-foreground text-xs">
-                    Optional. Groups a template with the offer it belongs to.
-                  </p>
-                </div>
+              {/**
+               * The category is chosen by the cards at the top of the page and
+               * nowhere else.
+               *
+               * There used to be a second set of buttons here, and it only
+               * moved the draft — so picking one left the cards, the list and
+               * the AI hint still on the old category while this said
+               * something different. One control, shown as a badge in the
+               * header above.
+               */}
+              <div className="space-y-2">
+                <Label htmlFor="line">Service line</Label>
+                <Input
+                  id="line"
+                  list="service-lines"
+                  value={draft.category ?? ""}
+                  placeholder="Manual Lease Abstraction"
+                  onChange={(e) => set("category", e.target.value || null)}
+                />
+                <datalist id="service-lines">
+                  {serviceLines.map((l) => (
+                    <option key={l} value={l} />
+                  ))}
+                </datalist>
+                <p className="text-muted-foreground text-xs">
+                  Optional. Groups a template with the offer it belongs to —
+                  separate from the category, which is picked above.
+                </p>
               </div>
 
               <div className="space-y-2">

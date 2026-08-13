@@ -313,34 +313,13 @@ export function StoppedList({
 
                 <div className="flex shrink-0 items-center gap-2">
                   {/**
-                   * Where the block lives. Only "both" stops someone
-                   * everywhere; the other two each leave one system willing to
-                   * email them, which is worth seeing at a glance.
+                   * No badge for which system holds the block.
+                   *
+                   * Unblock lifts it in both regardless, so the distinction
+                   * was noise on every row for something nobody has to act on.
+                   * The row's own line still says when a block came from
+                   * QuickMail, which is the part that explains it.
                    */}
-                  {item.where === "both" ? (
-                    <Badge
-                      variant="outline"
-                      className="border-emerald-600/30 text-xs text-emerald-700"
-                    >
-                      here + QuickMail
-                    </Badge>
-                  ) : item.where === "quickmail" ? (
-                    <Badge
-                      variant="outline"
-                      className="border-blue-600/30 text-xs text-blue-700"
-                    >
-                      QuickMail only
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-xs">
-                      here only
-                    </Badge>
-                  )}
-                  {item.kind === "domain" && (
-                    <Badge variant="outline" className="text-xs">
-                      whole company
-                    </Badge>
-                  )}
                   {item.hits > 1 && (
                     <Badge
                       variant="outline"

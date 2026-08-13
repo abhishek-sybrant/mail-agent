@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
 import { replyText } from "@/lib/quickmail/mail-text";
 import { sendReply, withSession } from "@/lib/quickmail/inbox";
+import { activeManagerEmails } from "@/lib/managers";
 
 /**
  * Emailing an inbound reply to whoever handles them.
@@ -60,8 +61,14 @@ export function forwardTransport(): ForwardTransport {
     : "quickmail";
 }
 
+/**
+ * Whether there is a way to send at all.
+ *
+ * Only about the transport now. Who receives it is a separate question with a
+ * separate answer — the Managers tab — and conflating the two meant an empty
+ * MANAGER_EMAIL reported the sending setup as broken when it was fine.
+ */
 export function forwardingConfigured(): boolean {
-  if (!process.env.MANAGER_EMAIL) return false;
   return forwardTransport() === "smtp"
     ? Boolean(process.env.SMTP_HOST && process.env.SMTP_USER)
     : Boolean(process.env.FORWARD_FROM_INBOX);
@@ -156,7 +163,16 @@ export async function forwardReply(
   conversationId: string,
   opts: { force?: boolean } = {},
 ): Promise<ForwardOutcome> {
-  const to = process.env.MANAGER_EMAIL?.trim();
+  /**
+   * Everyone currently on the Managers tab, not a single address in .env.
+   *
+   * More than one is normal — someone covering, a second reviewer for a week —
+   * and they go on one message so the thread stays shared rather than each
+   * getting a private copy nobody else can see was answered.
+   */
+  const recipients = await activeManagerEmails();
+  const to = recipients[0];
+  const cc = recipients.slice(1);
 
   const convo = await prisma.qmConversation.findUnique({
     where: { id: conversationId },
@@ -173,9 +189,15 @@ export async function forwardReply(
   const latest = convo.messages[0];
   if (!latest) return { sent: false, reason: "no inbound message" };
 
-  if (!forwardingConfigured() || !to) {
+  if (!to) {
+    return {
+      sent: false,
+      reason: "nobody to forward to — add a manager on the Managers tab",
+    };
+  }
+  if (!forwardingConfigured()) {
     console.log(
-      `[forward] would send ${convo.prospect_email} to a manager — MANAGER_EMAIL / SMTP_* not set`,
+      `[forward] would send ${convo.prospect_email} to ${to} — the sending mailbox is not configured`,
     );
     return { sent: false, reason: "not configured" };
   }
@@ -284,6 +306,9 @@ export async function forwardReply(
           subject,
           html,
           to,
+          // Everyone else on one message, so the thread stays shared.
+          // QuickMail takes cc as one comma-separated string, not a list.
+          ...(cc.length ? { cc: cc.join(", ") } : {}),
           archive: false,
         }),
       );
@@ -294,6 +319,7 @@ export async function forwardReply(
       await transport().sendMail({
         from: process.env.NOTIFY_FROM ?? process.env.SMTP_USER,
         to,
+        ...(cc.length ? { cc } : {}),
         // Reply goes to the prospect; see the note above on the tradeoff.
         replyTo: convo.prospect_email ?? to,
         subject,
@@ -304,7 +330,8 @@ export async function forwardReply(
 
     await prisma.qmConversation.update({
       where: { id: conversationId },
-      data: { forwarded_at: new Date(), forwarded_to: to },
+      // Record everyone it went to, not just the first name on the envelope.
+      data: { forwarded_at: new Date(), forwarded_to: recipients.join(", ") },
     });
 
     return { sent: true, to };
@@ -330,7 +357,16 @@ export async function forwardPending(limit?: number): Promise<{
   reasons: string[];
 }> {
   if (!forwardingConfigured()) {
-    return { sent: 0, failed: 0, remaining: 0, reasons: ["not configured"] };
+    return { sent: 0, failed: 0, remaining: 0, reasons: ["no sending mailbox set"] };
+  }
+  // Nobody to send to is a different problem from nothing to send.
+  if ((await activeManagerEmails()).length === 0) {
+    return {
+      sent: 0,
+      failed: 0,
+      remaining: 0,
+      reasons: ["no active manager — add one on the Managers tab"],
+    };
   }
 
   /**

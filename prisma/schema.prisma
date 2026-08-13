@@ -606,6 +606,32 @@ enum SuppressionReason {
 }
 
 /**
+ * People who receive forwarded replies.
+ *
+ * Replaces a single MANAGER_EMAIL in .env, which could only be changed by
+ * someone at the server with a restart, and could only ever name one person.
+ * Handing a reply to whoever is covering this week is an ordinary thing to
+ * want, and it should not require an editor and a deploy.
+ *
+ * Nothing is deleted when someone stops covering: `active` false keeps the
+ * record and the history of what was already sent to them.
+ */
+model Manager {
+  id     String  @id @default(cuid())
+  email  String  @unique
+  name   String?
+  active Boolean @default(true)
+
+  /// Free text — "covers EMEA", "out until the 20th".
+  note String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([active])
+}
+
+/**
  * Small persistent switches the app itself owns.
  *
  * Distinct from the .env knobs, which only a person at the server can change
