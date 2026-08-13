@@ -3,10 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { AiUnavailable, completeJson, providerFor } from "@/lib/ai/provider";
 import {
-  DAYS,
   DEFAULT_SPEC,
   missingFields,
-  TIMEZONES,
   type CampaignSpec,
 } from "@/lib/agent/campaign-spec";
 import { parsePrompt } from "@/lib/agent/parse-prompt";
@@ -192,8 +190,15 @@ QuickMail appends the sender's own signature.`,
   const userChoseFollowUps =
     answered.followUps !== undefined || (literal.followUps ?? []).length > 0;
 
-  const validDays = new Set<string>(DAYS);
-  const inferredDays = (ex.days ?? []).map((d) => d.toLowerCase()).filter((d) => validDays.has(d));
+  /**
+   * Scheduling is never taken from the model.
+   *
+   * Days, hours, timezone and visibility used to fall back to whatever the
+   * model extracted, which made every one of them look answered — so the agent
+   * stopped asking and a campaign went out on a timezone nobody had chosen.
+   * The same trap `leadsPerDay` already avoided. Only what the user actually
+   * wrote counts; anything else stays undefined so `missingFields` asks.
+   */
 
   const spec: Partial<CampaignSpec> = {
     name: answered.name ?? (ex.name?.trim() || undefined),
@@ -226,23 +231,12 @@ QuickMail appends the sender's own signature.`,
      */
     titleKeywords:
       answered.titleKeywords ?? (statedTitles(prompt) ? ex.title_keywords ?? [] : []),
-    days:
-      answered.days ??
-      literal.days ??
-      (inferredDays.length ? (inferredDays as CampaignSpec["days"]) : undefined),
-    timezone:
-      answered.timezone ??
-      literal.timezone ??
-      (ex.timezone && TIMEZONES.some((t) => t.value === ex.timezone)
-        ? ex.timezone
-        : undefined),
-    fromTime: answered.fromTime ?? literal.fromTime ?? ex.from_time,
-    toTime: answered.toTime ?? literal.toTime ?? ex.to_time,
-    allHours: answered.allHours ?? literal.allHours ?? ex.all_hours,
-    sharing:
-      answered.sharing ??
-      literal.sharing ??
-      (ex.sharing === "everyone" || ex.sharing === "only_me" ? ex.sharing : undefined),
+    days: answered.days ?? literal.days,
+    timezone: answered.timezone ?? literal.timezone,
+    fromTime: answered.fromTime ?? literal.fromTime,
+    toTime: answered.toTime ?? literal.toTime,
+    allHours: answered.allHours ?? literal.allHours,
+    sharing: answered.sharing ?? literal.sharing,
     /**
      * Never the model's guess.
      *
@@ -252,21 +246,18 @@ QuickMail appends the sender's own signature.`,
      * stated counts; otherwise it stays undefined and the question is asked.
      */
     leadsPerDay: answered.leadsPerDay ?? literal.leadsPerDay,
-    startImmediately:
-      answered.startImmediately ?? literal.startImmediately ?? ex.start_immediately ?? false,
+    startImmediately: answered.startImmediately ?? literal.startImmediately ?? false,
   };
 
-  // The model wrote a follow-up but nobody specified a delay — keep the copy
-  // and use a sane default rather than silently dropping the email.
-  if ((spec.followUps ?? []).length === 0 && ex.follow_up_body) {
-    spec.followUps = [
-      {
-        waitDays: ex.follow_up_wait_days ?? 3,
-        subject: ex.follow_up_subject ?? "",
-        body: ex.follow_up_body,
-      },
-    ];
-  }
+  /**
+   * No follow-ups unless they were asked for.
+   *
+   * The model writes one whenever the topic suggests a sequence, and that copy
+   * used to be adopted automatically — so a request for a single email quietly
+   * became two, sent days apart, to everyone. A follow-up is an extra message
+   * to a real person; it needs asking for, not inferring. The generated copy is
+   * kept on the plan so the builder can offer it, but nothing is scheduled.
+   */
 
   // An "all hours" answer satisfies the window question.
   if (spec.allHours) {
@@ -329,17 +320,25 @@ QuickMail appends the sender's own signature.`,
       // when the template has none — an empty preview wastes the inbox slot.
       spec.preview = first.preview ?? spec.preview ?? "";
 
-      // The rest of the sequence becomes the follow-ups, unless the prompt
-      // already specified its own cadence.
-      // Replaces the single follow-up the model may have invented above, but
-      // yields to a cadence the user actually specified.
+      /**
+       * The rest of the sequence is copy, not a decision to send more email.
+       *
+       * Matching a service line used to pull its whole three-touch brief in and
+       * schedule steps two and three automatically — so asking for one email
+       * about lease abstraction produced three, days apart, to everyone on the
+       * list. The condition was inverted too: it adopted them precisely when
+       * the user had NOT asked for follow-ups.
+       *
+       * Now a follow-up exists only because someone asked for one. When they
+       * have, the approved copy fills the cadence they chose instead of the
+       * model writing something new.
+       */
       const rest = sequence.filter((t) => t !== first);
-      if (rest.length > 0 && !userChoseFollowUps) {
-        spec.followUps = rest.map((t, i) => ({
-          // The briefs are three touches roughly a week apart.
-          waitDays: 3 + i * 2,
-          subject: t.subject,
-          body: t.body,
+      if (userChoseFollowUps && rest.length > 0) {
+        spec.followUps = (spec.followUps ?? []).map((f, i) => ({
+          waitDays: f.waitDays,
+          subject: f.subject || rest[i]?.subject || "",
+          body: f.body || rest[i]?.body || "",
         }));
       }
     }
