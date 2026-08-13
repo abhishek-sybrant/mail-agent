@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { AiUnavailable, completeJson, providerFor } from "@/lib/ai/provider";
 import { bestMailbox, mailboxHealth } from "@/lib/mailbox-health";
+import { tagInstructions } from "@/lib/merge-tags";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
 export const maxDuration = 300;
@@ -202,10 +203,10 @@ template's own wording when you picked one, or with your new copy when you did
 not.
 
 Write copy that is 80-140 words, one clear ask, plain text, no markdown, no
-"I hope this finds you well". The ONLY merge tag that works is
-{{lead.first_name}} — there is no company or title data behind any other tag,
-so anything else sends as blank text. Name the company in words instead.
-suggested_titles should be job-title keywords that match the buyer, lowercase.`,
+"I hope this finds you well".
+suggested_titles should be job-title keywords that match the buyer, lowercase.
+
+${tagInstructions()}`,
       user: prompt,
     });
   } catch (error) {

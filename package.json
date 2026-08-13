@@ -17,6 +17,7 @@
     "show-replies": "tsx scripts/show-replies.ts",
     "classify-replies": "tsx scripts/classify-replies.ts",
     "eval-classify": "tsx scripts/eval-classify.ts",
+    "tag-coverage": "tsx scripts/tag-coverage.ts",
     "unstop": "tsx scripts/unstop-prospect.ts",
     "set-password": "tsx scripts/set-password.ts",
     "db:migrate": "prisma migrate dev",

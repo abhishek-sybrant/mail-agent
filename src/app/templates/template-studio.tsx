@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchErrorMessage } from "@/lib/fetch-error";
+import { MERGE_TAGS, previewTags, unknownTags } from "@/lib/merge-tags";
 import { KINDS, kindMeta, type TemplateKind } from "@/lib/template-kinds";
 import { cn } from "@/lib/utils";
 
@@ -45,9 +46,11 @@ const ICONS: Record<TemplateKind, typeof Mail> = {
   NEGATIVE_REPLY: ThumbsDown,
 };
 
-const VARIABLES = [
-  { token: "{{lead.first_name}}", hint: "Lead's first name" },
-];
+const RISK_STYLE: Record<string, string> = {
+  safe: "text-emerald-700 dark:text-emerald-400",
+  care: "text-amber-700 dark:text-amber-400",
+  avoid: "text-muted-foreground",
+};
 
 function blank(kind: TemplateKind): TemplateRow {
   return {
@@ -157,8 +160,9 @@ export function TemplateStudio({
     }
   }
 
-  const preview = (text: string) =>
-    text.replaceAll("{{lead.first_name}}", "Sarah");
+  // Anything {{…}} that QuickMail does not know is sent to the prospect as
+  // written, so it is worth catching here rather than in someone's inbox.
+  const stray = unknownTags(`${draft.subject}\n${draft.body}`);
 
   return (
     <div className="space-y-6">
@@ -394,31 +398,68 @@ export function TemplateStudio({
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Merge tags</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {VARIABLES.map((v) => (
-                <button
-                  key={v.token}
-                  onClick={() => set("body", `${draft.body}${v.token}`)}
-                  className="hover:bg-accent flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left"
-                >
-                  <code className="text-primary text-xs">{v.token}</code>
-                  <span className="text-muted-foreground truncate text-xs">
-                    {v.hint}
-                  </span>
-                </button>
-              ))}
+            <CardContent className="space-y-3">
               {/**
-               * Only one tag is offered on purpose. The lead table has no
-               * company or title behind it for most rows, so a company tag
-               * would send as empty text — worse than naming nothing.
+               * QuickMail's own list, grouped as their picker groups it, with
+               * how well each one is actually backed by data. A tag with
+               * nothing behind it resolves to empty text — "Hi ," — so the
+               * colour is the point, not decoration.
                */}
-              <p className="text-muted-foreground pt-1 text-xs">
-                QuickMail resolves this at send time. Company and title tags are
-                not offered — there is no data behind them, so they would send
-                blank.
+              {(["Lead", "Company", "Mailbox"] as const).map((group) => (
+                <div key={group} className="space-y-1">
+                  <p className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
+                    {group}
+                  </p>
+                  {MERGE_TAGS.filter((t) => t.group === group).map((t) => (
+                    <button
+                      key={t.token}
+                      title={t.note}
+                      onClick={() => set("body", `${draft.body}${t.token}`)}
+                      className="hover:bg-accent block w-full rounded-md px-2 py-1 text-left"
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <code className={cn("text-xs", RISK_STYLE[t.risk])}>
+                          {t.token}
+                        </code>
+                        <span className="text-muted-foreground shrink-0 text-[11px]">
+                          {t.risk === "safe"
+                            ? "safe"
+                            : t.risk === "care"
+                              ? "check"
+                              : "avoid"}
+                        </span>
+                      </span>
+                      <span className="text-muted-foreground block text-[11px] leading-snug">
+                        {t.note}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+
+              <p className="text-muted-foreground border-t pt-2 text-xs">
+                QuickMail fills these at send time. Anything else in double
+                braces is sent to the prospect exactly as written.
               </p>
             </CardContent>
           </Card>
+
+          {stray.length > 0 && (
+            <Card className="border-destructive/40">
+              <CardContent className="py-3">
+                <p className="text-destructive text-sm font-medium">
+                  {stray.length === 1 ? "This tag is not" : "These tags are not"}{" "}
+                  a QuickMail tag
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {stray.join(", ")} — QuickMail does not recognise{" "}
+                  {stray.length === 1 ? "it" : "them"}, so{" "}
+                  {stray.length === 1 ? "it" : "they"} would be sent to the
+                  prospect exactly like that. Use one from the list above.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-3">
@@ -426,11 +467,11 @@ export function TemplateStudio({
             </CardHeader>
             <CardContent>
               <p className="text-sm font-medium break-words">
-                {preview(draft.subject) || "No subject yet"}
+                {previewTags(draft.subject) || "No subject yet"}
               </p>
               <Separator className="my-3" />
               <pre className="text-muted-foreground max-h-96 overflow-y-auto font-sans text-xs break-words whitespace-pre-wrap">
-                {preview(draft.body) || "Nothing to preview yet."}
+                {previewTags(draft.body) || "Nothing to preview yet."}
               </pre>
             </CardContent>
           </Card>

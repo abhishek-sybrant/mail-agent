@@ -1,3 +1,4 @@
+import { tagInstructions } from "@/lib/merge-tags";
 import { AiUnavailable, complete, completeJson, providerFor } from "./provider";
 
 export type GeneratedTemplate = {
@@ -42,13 +43,12 @@ const TEMPLATE_BASE = `You write email for a B2B SDR team.
 
 Rules that matter more than style:
 - One clear ask at the end. Never two.
-- The ONLY merge tag that works is {{lead.first_name}}. Never use {{firstName}},
-  {{companyName}} or any company/title tag — there is no company data behind
-  them, so they would send as empty text. Name the company in words instead.
 - Do not write a sign-off name or signature. The sending mailbox appends its own.
 - No "I hope this email finds you well", no "circling back", no fake urgency.
 - Plain text only. No markdown, no HTML, no emoji.
-- Write like a person emailing one other person.`;
+- Write like a person emailing one other person.
+
+${tagInstructions()}`;
 
 /**
  * What changes between the four moments.
