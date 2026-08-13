@@ -1,8 +1,44 @@
 import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/prisma";
+import { withSession } from "@/lib/quickmail/inbox";
+import { listDncDomains, listDncEmails } from "@/lib/quickmail/dnc";
 import { StoppedList, type BlockedItem } from "./stopped-list";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * QuickMail's own blocked lists, read live.
+ *
+ * Best-effort on purpose: it needs the browser session, and if that is down the
+ * page still has to render the local list rather than fail outright. The reason
+ * is returned so the page can say the QuickMail side is unread instead of
+ * quietly showing a short list as though it were complete.
+ */
+async function readQuickMail(): Promise<{
+  emails: { email: string; author: string | null }[];
+  domains: string[];
+  error: string | null;
+}> {
+  try {
+    return await withSession(async (s) => {
+      const [e, d] = await Promise.all([
+        listDncEmails(s, { limit: 500 }),
+        listDncDomains(s),
+      ]);
+      return {
+        emails: e.emails.map((x) => ({ email: x.email, author: x.author })),
+        domains: d.domains.map((x) => x.domain),
+        error: null,
+      };
+    });
+  } catch (error) {
+    return {
+      emails: [],
+      domains: [],
+      error: error instanceof Error ? error.message : "QuickMail unreachable",
+    };
+  }
+}
 
 /**
  * Everything that must never be emailed — addresses and whole domains.
@@ -20,7 +56,9 @@ export default async function StoppedPage({
   const q = params.q?.trim() ?? "";
   const kind = params.kind === "domains" || params.kind === "emails" ? params.kind : "";
 
-  const [addresses, domains, addressTotal, domainTotal, repeats] = await Promise.all([
+  const [quickmail, addresses, domains, addressTotal, domainTotal, repeats] =
+    await Promise.all([
+      readQuickMail(),
     kind === "domains"
       ? []
       : prisma.suppression.findMany({
@@ -40,6 +78,12 @@ export default async function StoppedPage({
     prisma.suppression.count({ where: { hits: { gt: 1 } } }),
   ]);
 
+  const qmEmails = new Set(quickmail.emails.map((e) => e.email.toLowerCase()));
+  const qmDomains = new Set(quickmail.domains.map((d) => d.toLowerCase()));
+  const qmAuthor = new Map(
+    quickmail.emails.map((e) => [e.email.toLowerCase(), e.author]),
+  );
+
   const items: BlockedItem[] = [
     ...domains.map((d) => ({
       id: d.id,
@@ -50,6 +94,9 @@ export default async function StoppedPage({
       hits: d.hits,
       note: d.note,
       since: d.first_seen.toISOString(),
+      where: qmDomains.has(d.domain.toLowerCase())
+        ? ("both" as const)
+        : ("local" as const),
     })),
     ...addresses.map((a) => ({
       id: a.id,
@@ -60,27 +107,87 @@ export default async function StoppedPage({
       hits: a.hits,
       note: a.note,
       since: a.first_seen.toISOString(),
+      where: qmEmails.has(a.email.toLowerCase())
+        ? ("both" as const)
+        : ("local" as const),
     })),
   ];
+
+  /**
+   * Blocks that exist only in QuickMail.
+   *
+   * Someone who unsubscribed there, or an address a colleague blocked in their
+   * UI, never appeared here at all — so this list read as complete while the
+   * app was quietly willing to email people QuickMail had already stopped.
+   * They carry no local row, which is why unblocking has to be able to act on
+   * QuickMail alone.
+   */
+  const matchesQuery = (v: string) => !q || v.toLowerCase().includes(q.toLowerCase());
+
+  const quickmailOnly: BlockedItem[] = [
+    ...(kind === "emails"
+      ? []
+      : quickmail.domains
+          .filter((d) => matchesQuery(d))
+          .filter((d) => !domains.some((x) => x.domain.toLowerCase() === d.toLowerCase()))
+          .map((d) => ({
+            id: `qm-domain-${d}`,
+            value: d,
+            kind: "domain" as const,
+            reason: "MANUAL",
+            source: "quickmail",
+            hits: 0,
+            note: null,
+            since: "",
+            where: "quickmail" as const,
+          }))),
+    ...(kind === "domains"
+      ? []
+      : quickmail.emails
+          .filter((e) => matchesQuery(e.email))
+          .filter(
+            (e) => !addresses.some((x) => x.email.toLowerCase() === e.email.toLowerCase()),
+          )
+          .map((e) => ({
+            id: `qm-email-${e.email}`,
+            value: e.email,
+            kind: "email" as const,
+            reason: "MANUAL",
+            source: "quickmail",
+            hits: 0,
+            note: qmAuthor.get(e.email.toLowerCase())
+              ? `blocked in QuickMail by ${qmAuthor.get(e.email.toLowerCase())}`
+              : null,
+            since: "",
+            where: "quickmail" as const,
+          }))),
+  ];
+
+  const qmTotal = quickmail.emails.length + quickmail.domains.length;
+  const localTotal = addressTotal + domainTotal;
 
   return (
     <>
       <PageHeader
         title="Stopped"
         description={
-          addressTotal + domainTotal === 0
+          localTotal + qmTotal === 0
             ? "Nothing is blocked yet."
-            : `${addressTotal} address${addressTotal === 1 ? "" : "es"} and ${domainTotal} domain${domainTotal === 1 ? "" : "s"} will never be emailed.`
+            : `${addressTotal} address${addressTotal === 1 ? "" : "es"} and ${domainTotal} domain${domainTotal === 1 ? "" : "s"} blocked here` +
+              (quickmail.error
+                ? " — QuickMail's own list could not be read"
+                : `, ${qmTotal} in QuickMail.`)
         }
       />
       <div className="max-w-5xl p-8">
         <StoppedList
-          items={items}
+          items={[...items, ...quickmailOnly]}
           query={q}
           kind={kind}
           addressTotal={addressTotal}
           domainTotal={domainTotal}
           repeatOffenders={repeats}
+          quickmailError={quickmail.error}
         />
       </div>
     </>

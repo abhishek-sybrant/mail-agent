@@ -20,6 +20,15 @@ export type BlockedItem = {
   hits: number;
   note: string | null;
   since: string;
+  /**
+   * Which system holds the block.
+   *
+   * "local" governs what this app enrols. "quickmail" is a block someone made
+   * there, or a prospect who unsubscribed themselves — no local row exists for
+   * it. Only "both" actually stops a person everywhere, so the distinction is
+   * worth showing rather than flattening into one list.
+   */
+  where: "local" | "quickmail" | "both";
 };
 
 /**
@@ -56,6 +65,7 @@ export function StoppedList({
   addressTotal,
   domainTotal,
   repeatOffenders,
+  quickmailError,
 }: {
   items: BlockedItem[];
   query: string;
@@ -63,6 +73,7 @@ export function StoppedList({
   addressTotal: number;
   domainTotal: number;
   repeatOffenders: number;
+  quickmailError?: string | null;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState(query);
@@ -139,15 +150,18 @@ export function StoppedList({
   async function unblock(item: BlockedItem) {
     try {
       const json = await post({ action: "unblock", value: item.value }, item.id);
-      if (item.kind === "domain" && json.quickmail) {
-        toast.warning(`@${item.value} unblocked.`, {
+
+      // The QuickMail side is reported for addresses as well now, so a block
+      // that only exists there cannot silently survive being unblocked here.
+      if (json.quickmail) {
+        toast.warning(`${item.value} unblocked here.`, {
           description: `QuickMail still has it blocked — ${describeQuickMailFailure(json.quickmail)}.`,
           duration: 8000,
         });
       } else {
         toast.success(
-          item.kind === "domain"
-            ? `@${item.value} can be emailed again, here and in QuickMail.`
+          json.removedThere > 0
+            ? `${item.value} can be emailed again, here and in QuickMail.`
             : `${item.value} can be emailed again.`,
         );
       }
@@ -159,6 +173,27 @@ export function StoppedList({
 
   return (
     <div className="space-y-4">
+      {/**
+       * Say when QuickMail's own list is missing.
+       *
+       * Without this the page would show only the local blocks and read as the
+       * complete picture, which is exactly the impression that lets someone
+       * email a person QuickMail had already stopped.
+       */}
+      {quickmailError && (
+        <Card className="border-amber-600/30 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="py-3">
+            <p className="text-sm font-medium">
+              QuickMail&apos;s own blocked list could not be read
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {describeQuickMailFailure(quickmailError)}. Only blocks made here
+              are shown below — QuickMail may be blocking more.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Add a block by hand — an address or a whole domain, same box. */}
       <Card>
         <CardContent className="space-y-2 py-4">
@@ -269,14 +304,38 @@ export function StoppedList({
                       {item.kind === "domain" ? `@${item.value}` : item.value}
                     </p>
                     <p className="text-muted-foreground truncate text-xs">
-                      {REASON_LABEL[item.reason] ?? item.reason} · via {item.source} ·
-                      since {fmtDateTime(item.since)}
-                      {item.note ? ` · ${item.note}` : ""}
+                      {item.where === "quickmail"
+                        ? item.note ?? "blocked in QuickMail"
+                        : `${REASON_LABEL[item.reason] ?? item.reason} · via ${item.source} · since ${fmtDateTime(item.since)}${item.note ? ` · ${item.note}` : ""}`}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
+                  {/**
+                   * Where the block lives. Only "both" stops someone
+                   * everywhere; the other two each leave one system willing to
+                   * email them, which is worth seeing at a glance.
+                   */}
+                  {item.where === "both" ? (
+                    <Badge
+                      variant="outline"
+                      className="border-emerald-600/30 text-xs text-emerald-700"
+                    >
+                      here + QuickMail
+                    </Badge>
+                  ) : item.where === "quickmail" ? (
+                    <Badge
+                      variant="outline"
+                      className="border-blue-600/30 text-xs text-blue-700"
+                    >
+                      QuickMail only
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs">
+                      here only
+                    </Badge>
+                  )}
                   {item.kind === "domain" && (
                     <Badge variant="outline" className="text-xs">
                       whole company
