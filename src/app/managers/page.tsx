@@ -33,15 +33,20 @@ export default async function ManagersPage() {
   const forwarding = switches.find((s) => s.key === "sync.forward") ?? null;
   const batch = Math.min(Math.max(Number(process.env.FORWARD_BATCH) || 5, 1), 100);
   const active = managers.filter((m) => m.active).length;
+  const stopped = Boolean(forwarding && !forwarding.on);
 
   return (
     <>
       <PageHeader
         title="Managers"
         description={
-          active === 0
-            ? "Nobody is receiving forwarded replies yet."
-            : `${active} ${active === 1 ? "person receives" : "people receive"} every real reply, ${queued} still waiting.`
+          // Stopped outranks everyone's individual state: with the switch off
+          // nobody receives anything, whatever their own row says.
+          stopped
+            ? `Forwarding is stopped — nobody is receiving, and ${queued} ${queued === 1 ? "reply is" : "replies are"} waiting.`
+            : active === 0
+              ? "Nobody is receiving forwarded replies yet."
+              : `${active} ${active === 1 ? "person receives" : "people receive"} every real reply, ${queued} still waiting.`
         }
       />
       <div className="p-8">

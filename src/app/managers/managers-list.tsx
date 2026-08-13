@@ -122,7 +122,19 @@ export function ManagersList({
     }
   }
 
+  /**
+   * The master switch outranks the individual ones.
+   *
+   * With forwarding stopped nobody receives anything, so a list still saying
+   * "2 receiving" with live Pause buttons contradicts the card directly above
+   * it. Each person's own state is kept rather than written over — it decides
+   * what happens when forwarding starts again, and flipping them all off would
+   * lose the difference between "paused by hand" and "paused because the whole
+   * thing is stopped".
+   */
+  const stopped = Boolean(forwarding && !forwarding.on);
   const active = managers.filter((m) => m.active).length;
+  const receiving = stopped ? 0 : active;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -229,12 +241,19 @@ export function ManagersList({
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
             {managers.length === 0
               ? "Nobody yet"
-              : `${active} receiving${
-                  managers.length > active ? `, ${managers.length - active} paused` : ""
-                }`}
+              : stopped
+                ? `Nobody is receiving — ${active} would, once forwarding is on`
+                : `${receiving} receiving${
+                    managers.length > active ? `, ${managers.length - active} paused` : ""
+                  }`}
+            {stopped && managers.length > 0 && (
+              <Badge variant="outline" className="text-destructive text-xs">
+                forwarding stopped
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -260,17 +279,25 @@ export function ManagersList({
                     <div className="min-w-0">
                       <p
                         className={
-                          m.active
+                          m.active && !stopped
                             ? "truncate text-sm font-medium"
                             : "text-muted-foreground truncate text-sm font-medium line-through"
                         }
                       >
                         {m.name ? `${m.name} · ${m.email}` : m.email}
                       </p>
-                      {m.note && (
+                      {/* The master switch is the reason, when it is off — say
+                          that rather than the note, which explains nothing. */}
+                      {stopped && m.active ? (
                         <p className="text-muted-foreground truncate text-xs">
-                          {m.note}
+                          not receiving — forwarding is stopped
                         </p>
+                      ) : (
+                        m.note && (
+                          <p className="text-muted-foreground truncate text-xs">
+                            {m.note}
+                          </p>
+                        )
                       )}
                     </div>
                   </div>
@@ -279,6 +306,11 @@ export function ManagersList({
                     {!m.active && (
                       <Badge variant="outline" className="text-xs">
                         paused
+                      </Badge>
+                    )}
+                    {stopped && m.active && (
+                      <Badge variant="outline" className="text-xs">
+                        stopped
                       </Badge>
                     )}
                     <Button
