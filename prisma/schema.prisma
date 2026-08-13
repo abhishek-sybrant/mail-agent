@@ -605,6 +605,20 @@ enum SuppressionReason {
   MANUAL
 }
 
+/**
+ * Small persistent switches the app itself owns.
+ *
+ * Distinct from the .env knobs, which only a person at the server can change
+ * and only by restarting it. These are the ones someone needs to flip while
+ * the thing is running — stopping the manager forwarding mid-backlog, say —
+ * from whichever machine they happen to have the dashboard open on.
+ */
+model AppSetting {
+  key        String   @id
+  value      String
+  updated_at DateTime @updatedAt
+}
+
 /// One pass of the automatic sync.
 ///
 /// Every part is recorded whether it succeeded or not, because the parts fail

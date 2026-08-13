@@ -7,6 +7,7 @@ import { pullReplies } from "@/lib/quickmail/inbox-pull";
 import { applyDueSchedules } from "@/lib/quickmail/schedule";
 import { forwardPending, forwardingConfigured } from "@/lib/forward-reply";
 import { classifyPending } from "./classify-pending";
+import { isOn } from "./switches";
 
 /**
  * One pass over every part of the sync.
@@ -318,7 +319,13 @@ async function execute(
       }),
     );
 
-    if (!isConfigured()) {
+    // Switched off in the Sync tab, which outranks everything below it.
+    const campaignsOn = await isOn("sync.campaigns");
+
+    if (!campaignsOn) {
+      await add(skip("Campaigns", "stopped in the Sync tab"));
+      await add(skip("Mailboxes", "stopped in the Sync tab"));
+    } else if (!isConfigured()) {
       await add(skip("Campaigns", "QUICKMAIL_API_KEY is not set"));
       await add(skip("Mailboxes", "QUICKMAIL_API_KEY is not set"));
     } else {
@@ -389,8 +396,19 @@ async function execute(
         }),
       );
 
+      /**
+       * Stopping the forwarding stops only the sending.
+       *
+       * Replies are still pulled and still classified, so nothing is lost
+       * while it is off — the queue simply grows, and drains when it is
+       * switched back on.
+       */
+      const forwardOn = await isOn("sync.forward");
+
       await add(
-        forwardingConfigured()
+        !forwardOn
+          ? skip("Forward to manager", "stopped in the Sync tab")
+          : forwardingConfigured()
           ? await part("Forward to manager", async () => {
               const r = await forwardPending();
               if (r.sent === 0 && r.failed === 0) return "nothing to forward";

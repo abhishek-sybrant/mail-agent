@@ -7,6 +7,7 @@ import {
   nextSyncDueAt,
   runFullSync,
 } from "@/lib/sync/run-all";
+import { switchStates } from "@/lib/sync/switches";
 
 /**
  * The automatic sync, on demand.
@@ -22,12 +23,13 @@ import {
 export const maxDuration = 3600;
 
 async function status() {
-  const [last, nextDueAt, running] = await Promise.all([
+  const [last, nextDueAt, running, switches] = await Promise.all([
     lastSyncRun(),
     nextSyncDueAt(),
     isSyncRunning(),
+    switchStates(),
   ]);
-  return { intervalMs: SYNC_INTERVAL_MS, running, last, nextDueAt };
+  return { intervalMs: SYNC_INTERVAL_MS, running, last, nextDueAt, switches };
 }
 
 export async function GET() {

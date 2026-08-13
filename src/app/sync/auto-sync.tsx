@@ -2,10 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, Clock, Loader2, Minus, Timer } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  Clock,
+  Loader2,
+  Minus,
+  Play,
+  Square,
+  Timer,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchErrorMessage } from "@/lib/fetch-error";
 import { cn } from "@/lib/utils";
 
 export type PartResult = {
@@ -17,10 +27,20 @@ export type PartResult = {
   skipped?: boolean;
 };
 
+export type SwitchState = {
+  key: string;
+  label: string;
+  blurb: string;
+  offWarning: string;
+  on: boolean;
+  changedAt: string | null;
+};
+
 export type SyncStatus = {
   intervalMs: number;
   running: boolean;
   nextDueAt: string | null;
+  switches: SwitchState[];
   last: {
     trigger: string;
     started_at: string;
@@ -92,6 +112,36 @@ export function AutoSync({ initial }: { initial: SyncStatus }) {
     const t = setInterval(() => void refresh(), 15_000);
     return () => clearInterval(t);
   }, [remaining, busy, refresh]);
+
+  const [flipping, setFlipping] = useState<string | null>(null);
+
+  async function flip(s: SwitchState) {
+    setFlipping(s.key);
+    try {
+      const res = await fetch("/api/sync/switches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: s.key, on: !s.on }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not change that");
+
+      setStatus((prev) => ({ ...prev, switches: json.switches }));
+      if (s.on) {
+        toast.warning(`${s.label} stopped.`, {
+          description: s.offWarning,
+          duration: 7000,
+        });
+      } else {
+        toast.success(`${s.label} started — it runs again on the next pass.`);
+      }
+      router.refresh();
+    } catch (error) {
+      toast.error(fetchErrorMessage(error));
+    } finally {
+      setFlipping(null);
+    }
+  }
 
   async function runNow() {
     setBusy(true);
@@ -170,6 +220,48 @@ export function AutoSync({ initial }: { initial: SyncStatus }) {
             )}
             Sync everything now
           </Button>
+        </div>
+
+        {/**
+         * Per-part stops.
+         *
+         * Each one turns off a single job and leaves the timer running: the
+         * only way to silence the forwarding used to be killing the whole
+         * pass, which also stopped campaign windows being applied on time.
+         */}
+        <div className="divide-y rounded-md border">
+          {status.switches.map((s) => (
+            <div key={s.key} className="flex items-start gap-3 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  {s.label}
+                  {!s.on && (
+                    <span className="text-destructive text-xs font-normal">
+                      stopped
+                    </span>
+                  )}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {s.on ? s.blurb : s.offWarning}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant={s.on ? "outline" : "default"}
+                disabled={flipping === s.key}
+                onClick={() => flip(s)}
+              >
+                {flipping === s.key ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : s.on ? (
+                  <Square className="size-4" />
+                ) : (
+                  <Play className="size-4" />
+                )}
+                {s.on ? "Stop" : "Start"}
+              </Button>
+            </div>
+          ))}
         </div>
 
         {status.last ? (
