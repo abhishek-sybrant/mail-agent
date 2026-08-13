@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI SDR Dashboard — API, automation and what does the work</title>
+<style>
+  @page { size: A4; margin: 14mm 13mm; }
+
+  :root {
+    --ink:    #111110;
+    --ink-2:  #4d4c48;
+    --ink-3:  #7d7c74;
+    --rule:   #e3e1db;
+    --sunk:   #f7f6f3;
+    --blue:   #2a78d6;
+    --red:    #c0392f;
+    --amber:  #b06d10;
+    --green:  #1f7a4d;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 9.8pt;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  h1 { font-size: 19pt; margin: 0 0 6px; letter-spacing: -0.4pt; line-height: 1.12; }
+  .lede { font-size: 10.8pt; color: var(--ink-2); margin: 0 0 4px; }
+  h2 {
+    font-size: 12pt; margin: 20px 0 8px; letter-spacing: -0.2pt;
+    padding-bottom: 5px; border-bottom: 2px solid var(--ink);
+  }
+  h2:first-of-type { margin-top: 18px; }
+  h3 { font-size: 10.2pt; margin: 15px 0 5px; }
+  p { margin: 0 0 9px; }
+  .rule-top { border-top: 3px solid var(--ink); padding-top: 10px; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 2px; }
+  th {
+    font-size: 7.8pt; text-transform: uppercase; letter-spacing: 0.7pt;
+    color: var(--ink-3); text-align: left; font-weight: 600;
+    padding: 0 9px 5px 0; border-bottom: 1.5px solid var(--ink);
+  }
+  td { padding: 6px 9px 6px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td.k { font-weight: 620; }
+  td.c { text-align: center; }
+
+  .yes { color: var(--green); font-weight: 650; }
+  .no  { color: var(--red);  font-weight: 650; }
+  .warn{ color: var(--amber); font-weight: 650; }
+
+  ul { margin: 6px 0 9px; padding-left: 17px; }
+  li { margin-bottom: 4px; }
+
+  .bar {
+    border-left: 3px solid var(--ink); background: var(--sunk);
+    padding: 10px 13px; margin: 13px 0; font-size: 9.4pt; line-height: 1.5;
+  }
+  .bar.warn { border-left-color: var(--red); }
+  .bar.pick { border-left-color: var(--blue); }
+
+  code {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 8.4pt; background: var(--sunk); padding: 0 3px; border-radius: 2px;
+  }
+  .foot { margin-top: 14px; font-size: 8pt; color: var(--ink-3); }
+
+  /* The four-path ladder on page 1. */
+  .ladder { margin: 14px 0 6px; }
+  .rung {
+    display: grid; grid-template-columns: 26px 1fr; gap: 11px;
+    border: 1.5px solid var(--rule); border-radius: 6px;
+    padding: 10px 13px; margin-bottom: 8px;
+  }
+  .rung .n {
+    width: 22px; height: 22px; line-height: 22px; text-align: center;
+    background: var(--ink); color: #fff; border-radius: 50%;
+    font-size: 9pt; font-weight: 650;
+  }
+  .rung .big { font-size: 11pt; font-weight: 650; line-height: 1.2; }
+  .rung .sub { font-size: 8.4pt; color: var(--ink-3); margin: 2px 0 5px; }
+  .rung .what { color: var(--ink-2); }
+  .rung.l1 { border-color: var(--green); }
+  .rung.l1 .n { background: var(--green); }
+  .rung.l2 { border-color: var(--blue); }
+  .rung.l2 .n { background: var(--blue); }
+  .rung.l3 { border-color: var(--red); }
+  .rung.l3 .n { background: var(--red); }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+</style>
+</head>
+<body>
+
+<!-- ============================================== PAGE 1 -->
+<section class="page">
+
+  <h1>What does the work</h1>
+  <p class="lede">
+    Every QuickMail operation in the AI SDR Dashboard takes one of four paths.
+    Which one is never a preference — it is dictated by what QuickMail exposes.
+  </p>
+
+  <div class="bar">
+    <strong>The rule.</strong> Use the documented API wherever an operation
+    exists. Drop to QuickMail's internal endpoint only where the API has no
+    equivalent at all. Drive the web UI only where neither API can do the thing.
+    Each step down is more fragile and harder to run unattended, so nothing sits
+    on a lower rung for convenience.
+  </div>
+
+  <div class="ladder">
+    <div class="rung l1">
+      <div class="n">1</div>
+      <div>
+        <div class="big">v2 GraphQL API</div>
+        <div class="sub">api.quickmail.com/v2/graphql &middot; API key &middot; no browser needed</div>
+        <div class="what">Campaigns, leads, sequence steps, sending windows, mailbox list.</div>
+      </div>
+    </div>
+
+    <div class="rung l2">
+      <div class="n">2</div>
+      <div>
+        <div class="big">Internal GraphQL</div>
+        <div class="sub">next.quickmail.com/graphql &middot; signed-in browser session &middot; no password stored</div>
+        <div class="what">Replies, sending a reply, stopping a prospect, both block lists, deliverability.</div>
+      </div>
+    </div>
+
+    <div class="rung l3">
+      <div class="n">3</div>
+      <div>
+        <div class="big">Playwright, clicking the UI</div>
+        <div class="sub">off by default &middot; never throws into campaign creation</div>
+        <div class="what">Two things only: the daily lead trigger, and unpausing a campaign.</div>
+      </div>
+    </div>
+
+    <div class="rung">
+      <div class="n">4</div>
+      <div>
+        <div class="big">Local only</div>
+        <div class="sub">never touches QuickMail</div>
+        <div class="what">Suppression, reply classification, approvals, templates, campaign windows.</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">AI SDR Dashboard &middot; Sybrant Technologies &middot; page 1 of 5</p>
+</section>
+
+<!-- ============================================== PAGE 2 -->
+<section class="page">
+
+  <div class="rule-top">
+    <h2 style="margin-top:0">1 &nbsp;The documented API</h2>
+  </div>
+
+  <p>
+    Raw key in the <code>Authorization</code> header, 10 requests per 10 seconds.
+    The only path that runs with no browser involved, so everything that can
+    live here does.
+  </p>
+
+  <div class="cols">
+    <div>
+      <h3>Reads</h3>
+      <table>
+        <tr><td class="k"><code>Campaigns</code></td><td>names, paused, stats</td></tr>
+        <tr><td class="k"><code>CampaignSteps</code></td><td>positions, variation ids</td></tr>
+        <tr><td class="k"><code>LeadsPage</code></td><td>the lead list</td></tr>
+        <tr><td class="k"><code>emailAccounts</code></td><td>mailboxes, authorized, paused</td></tr>
+        <tr><td class="k"><code>workspaces</code></td><td>workspace id</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Writes</h3>
+      <table>
+        <tr><td class="k"><code>CreateCampaign</code></td><td>the shell</td></tr>
+        <tr><td class="k"><code>SetAccounts</code></td><td>attach mailboxes</td></tr>
+        <tr><td class="k"><code>CreateEmailStep</code></td><td>the sequence</td></tr>
+        <tr><td class="k"><code>CreateLeads</code>, <code>AddLeads</code></td><td>enrol prospects</td></tr>
+        <tr><td class="k"><code>UpdateAutomation</code></td><td>days, hours, timezone</td></tr>
+        <tr><td class="k"><code>SetPaused</code></td><td>open/close the window</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Its limits — which is the whole reason rungs 2 and 3 exist</h3>
+  <ul>
+    <li><span class="no">Caps silently.</span> <code>leads(first:)</code> returns
+      10 however many you ask for. A pass over ~50,000 leads is ~4,800 requests,
+      about 80 minutes at the rate limit — so the lead sync walks a slice per
+      hour and carries a cursor. <code>emailAccounts(first: 100)</code> also
+      returns 10.</li>
+    <li><span class="no">No company data.</span> The <code>Lead</code> type has
+      no company field and no custom fields. Probed directly: <code>company</code>,
+      <code>companyName</code>, <code>organization</code>, <code>customFields</code>,
+      <code>attributes</code>, <code>website</code>, <code>industry</code>,
+      <code>city</code>, <code>country</code> — all rejected.</li>
+    <li><span class="no">No campaign pause, no trigger.</span>
+      <code>paused</code> is writable on steps only.</li>
+    <li><span class="no">Nothing about replies.</span> No message, thread or
+      conversation type exists anywhere in the schema.</li>
+  </ul>
+
+  <p class="foot">AI SDR Dashboard &middot; Sybrant Technologies &middot; page 2 of 5</p>
+</section>
+
+<!-- ============================================== PAGE 3 -->
+<section class="page">
+
+  <div class="rule-top">
+    <h2 style="margin-top:0">2 &nbsp;QuickMail's internal endpoint</h2>
+  </div>
+
+  <p>
+    The same endpoint QuickMail's own web app uses. Introspection is disabled,
+    so every operation here was recovered by reading their JavaScript bundles —
+    shapes copied from their call sites, never guessed. Their front end defines
+    <strong>326 mutations</strong>; we use <strong>seven</strong>, and five
+    queries.
+  </p>
+
+  <div class="bar pick">
+    <strong>How the session works.</strong> Requests are issued <em>inside</em>
+    the signed-in page via <code>fetch('/graphql')</code>, so the cookie, CSRF
+    token and origin all match. Playwright attaches to an already-running browser
+    over CDP rather than logging in — <strong>no QuickMail password is stored
+    anywhere in this app.</strong>
+  </div>
+
+  <table>
+    <tr><th style="width:42%">Operation</th><th>Used for</th></tr>
+    <tr><td class="k"><code>appComponentsWorkspaceOpportunities</code></td><td>Listing replies</td></tr>
+    <tr><td class="k"><code>workspaceAppOpportunity</code></td><td>One thread, with message bodies</td></tr>
+    <tr><td class="k"><code>replyToEmail</code></td><td>Sending a reply in-thread; also the manager forward</td></tr>
+    <tr><td class="k"><code>setProspectsAsDoNotContact</code></td><td>Marking a prospect do-not-contact</td></tr>
+    <tr><td class="k"><code>cancelProspects</code></td><td>Stopping their remaining sequence</td></tr>
+    <tr><td class="k"><code>addDncEmails</code> / <code>removeDncEmails</code></td><td>The blocked-address list</td></tr>
+    <tr><td class="k"><code>addDncDomains</code> / <code>removeDncDomains</code></td><td>The blocked-domain list</td></tr>
+    <tr><td class="k"><code>workspaceDncEmailsPagination</code></td><td>Reading both block lists</td></tr>
+    <tr><td class="k"><code>accountinboxPagination</code></td><td>Deliverability: <code>accredited</code>, score, daily quota</td></tr>
+  </table>
+
+  <h3>Why none of these can use the API</h3>
+  <ul>
+    <li><strong>Replies.</strong> The v2 schema has no reply, message or thread
+      type. v1 REST was probed too — <code>/replies</code>, <code>/inbox</code>,
+      <code>/messages</code>, <code>/threads</code>, <code>/conversations</code>,
+      <code>/emails</code>, <code>/unibox</code>, <code>/activity</code>,
+      <code>/events</code> — every one returns 404.</li>
+    <li><strong>Block lists.</strong> No v2 equivalent exists.</li>
+    <li><strong>Deliverability.</strong> v2 reports whether a mailbox is
+      <em>connected</em>, never whether its mail <em>lands</em>. The
+      <code>accredited</code> verdict exists only here — and it is what tells us
+      a sender will go to spam.</li>
+  </ul>
+
+  <h3>Quirks that cost real debugging time</h3>
+  <ul>
+    <li><strong>Two id namespaces.</strong> v2 calls a mailbox
+      <code>email_kKXM…</code>; this endpoint calls the same mailbox
+      <code>198838</code>. Passing the v2 id returns "you don't have the
+      permission to inbox".</li>
+    <li><strong><code>searchFilter</code> is a JSON string, and required.</strong>
+      Omitting it returns a 500 HTML error page, not a GraphQL error.</li>
+    <li><strong>An invented field also returns 500 HTML</strong>, naming nothing
+      — which is exactly why shapes are copied from the bundle.</li>
+    <li><strong><code>first</code> is not obeyed.</strong> Asking for 40 returns
+      30, so paging is explicit. Quiet truncation is how a sync starts looking
+      complete when it isn't.</li>
+    <li><strong><code>reply_type</code> comes back null</strong> on nearly every
+      thread, so reply classification is ours to do.</li>
+  </ul>
+
+  <p class="foot">AI SDR Dashboard &middot; Sybrant Technologies &middot; page 3 of 5</p>
+</section>
+
+<!-- ============================================== PAGE 4 -->
+<section class="page">
+
+  <div class="rule-top">
+    <h2 style="margin-top:0">3 &nbsp;Playwright, clicking the real UI</h2>
+  </div>
+
+  <p>
+    Used for exactly two things, both confirmed absent from both APIs first:
+    <strong>setting the daily trigger</strong> (how many new leads start each
+    day) and <strong>unpausing the campaign itself</strong>, as distinct from its
+    steps.
+  </p>
+
+  <div class="bar warn">
+    <strong>The most fragile path in the system.</strong> It holds a real login
+    rather than an API key, and QuickMail can break it at any time by changing
+    their front end. Three rules follow: it is off unless
+    <code>QUICKMAIL_UI_AUTOMATION=true</code>; it never throws into campaign
+    creation, so a failure degrades to written manual instructions rather than
+    losing a campaign that was created successfully; and every run is verified
+    through the API afterwards.
+  </div>
+
+  <p>
+    v1 REST was checked as well before resorting to this:
+    <code>/v1/accounts/{id}/campaigns</code> is a read-only list, and
+    <code>/triggers</code>, <code>/automation</code>, <code>/pause</code>,
+    <code>/resume</code>, <code>/start</code>, plus <code>PUT</code> and
+    <code>PATCH</code> on campaigns, all 404.
+  </p>
+
+  <h2>The browser, and where it runs</h2>
+
+  <div class="bar pick">
+    <strong>The browser runs on the server, not on your machine.</strong>
+    <code>connectOverCDP</code> dials <code>127.0.0.1</code>, which from the
+    server's point of view is the server. Opening the dashboard from another
+    computer needs no Edge, no Playwright and no QuickMail login — just a browser
+    and an app password.
+  </div>
+
+  <p>
+    The server starts that browser itself when it isn't running, using a profile
+    of its own with extensions disabled. One step still needs a person, once:
+    signing in to QuickMail, because no password is stored. The profile keeps the
+    session afterwards.
+  </p>
+
+  <p>
+    A consequence worth stating plainly: <strong>the automation always acts as
+    whichever QuickMail account that browser is signed in as.</strong> It makes
+    no difference who clicks, or from where.
+  </p>
+
+  <p class="foot">AI SDR Dashboard &middot; Sybrant Technologies &middot; page 4 of 5</p>
+</section>
+
+<!-- ============================================== PAGE 5 -->
+<section class="page">
+
+  <div class="rule-top">
+    <h2 style="margin-top:0">4 &nbsp;What never touches QuickMail</h2>
+  </div>
+
+  <table>
+    <tr><th style="width:30%">Area</th><th>Why it is local</th></tr>
+    <tr><td class="k">Suppression list</td><td>Keyed on the address, so re-importing a spreadsheet cannot resurrect someone who asked to stop. Mirrored <em>into</em> QuickMail's block list as well.</td></tr>
+    <tr><td class="k">Reply classification</td><td>QuickMail returns <code>reply_type</code> null on nearly everything.</td></tr>
+    <tr><td class="k">Approvals</td><td>The human-in-the-loop gate. Nothing there to sync.</td></tr>
+    <tr><td class="k">Templates</td><td>Ours. QuickMail stores copy per step, not as a library.</td></tr>
+    <tr><td class="k">Campaign windows</td><td>QuickMail has no start or end date, so the app enforces one by pausing and unpausing steps on a timer.</td></tr>
+    <tr><td class="k">Managers, sync switches</td><td>App configuration.</td></tr>
+  </table>
+
+  <h2>What stops when the browser is unavailable</h2>
+
+  <p>
+    This is the practical difference between the rungs, and it is visible on the
+    Sync tab every hour. Each part of the hourly pass is recorded independently,
+    so a failed reply pull costs the reply pull and nothing else.
+  </p>
+
+  <div class="cols">
+    <div>
+      <h3 class="yes">Still works</h3>
+      <ul>
+        <li>Campaign stats</li>
+        <li>Sending-mailbox list</li>
+        <li>The lead walk</li>
+        <li>Campaign start/end windows</li>
+        <li>Everything local</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="no">Stops</h3>
+      <ul>
+        <li>Pulling replies</li>
+        <li>Sending a reply</li>
+        <li>Stopping a prospect</li>
+        <li>Both block lists</li>
+        <li>Deliverability figures</li>
+        <li>Forwarding to managers</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">
+    AI SDR Dashboard &middot; Sybrant Technologies &middot; page 5 of 5 &middot;
+    figures counted from the codebase, not recalled
+  </p>
+</section>
+
+</body>
+</html>

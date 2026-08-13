@@ -20,6 +20,7 @@ const NAMES: Record<string, string> = {
   "project-overview": "AI-SDR-Dashboard-Overview",
   "summary-2page": "AI-SDR-vs-QuickMail-2page",
   "hosting-options": "AI-SDR-Hosting-Options",
+  "api-and-automation": "AI-SDR-API-and-Automation",
 };
 
 async function main() {
