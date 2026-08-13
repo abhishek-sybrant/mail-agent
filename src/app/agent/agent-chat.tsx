@@ -110,7 +110,14 @@ export function AgentChat({
   aiReady: boolean;
   aiDetail: string;
   aiModel: string | null;
-  mailboxes: { id: string; email: string; assignable: boolean | null }[];
+  mailboxes: {
+    id: string;
+    email: string;
+    assignable: boolean | null;
+    usable: boolean;
+    severity: "ok" | "warn" | "blocked";
+    reason: string | null;
+  }[];
   templates: TemplateOption[];
 }) {
   const router = useRouter();
@@ -130,9 +137,15 @@ export function AgentChat({
   const [showSummary, setShowSummary] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [picked, setPicked] = useState<PickedLeads | null>(null);
-  // Default to a mailbox QuickMail is known to accept, not merely the first.
+  /**
+   * Default to a mailbox that can actually send.
+   *
+   * Not merely one QuickMail will accept: a deauthorized or unaccredited
+   * sender is accepted too, and then either sends nothing or sends to spam.
+   */
   const [mailboxSel, setMailboxSel] = useState<Set<string>>(() => {
-    const good = mailboxes.find((m) => m.assignable !== false);
+    const good =
+      mailboxes.find((m) => m.severity === "ok") ?? mailboxes.find((m) => m.usable);
     return new Set(good ? [good.id] : []);
   });
   const [creating, setCreating] = useState(false);
@@ -627,15 +640,28 @@ export function AgentChat({
                 <Label className="text-xs">
                   Sending mailboxes ({mailboxSel.size})
                 </Label>
-                <div className="max-h-28 space-y-0.5 overflow-y-auto rounded-md border p-2">
+                <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border p-2">
                   {mailboxes.map((m) => (
+                    /**
+                     * Unusable senders stay on the list, greyed out and
+                     * unselectable, with the reason underneath. Removing them
+                     * would make a mailbox look deleted and send someone
+                     * hunting through QuickMail for a sender that is still
+                     * there; leaving them selectable sends a campaign to spam.
+                     */
                     <label
                       key={m.id}
-                      className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs"
+                      title={m.reason ?? undefined}
+                      className={
+                        m.usable
+                          ? "hover:bg-accent flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 text-xs"
+                          : "flex cursor-not-allowed items-start gap-2 rounded px-1.5 py-1 text-xs opacity-60"
+                      }
                     >
                       <input
                         type="checkbox"
-                        className="size-3.5"
+                        className="mt-0.5 size-3.5"
+                        disabled={!m.usable}
                         checked={mailboxSel.has(m.id)}
                         onChange={() =>
                           setMailboxSel((prev) => {
@@ -646,15 +672,26 @@ export function AgentChat({
                           })
                         }
                       />
-                      <span className="min-w-0 flex-1 truncate">{m.email}</span>
-                      {m.assignable === false && (
+                      <span className="min-w-0 flex-1">
                         <span
-                          className="shrink-0 text-amber-600 dark:text-amber-400"
-                          title="QuickMail rejected this mailbox last time it was attached"
+                          className={
+                            m.usable ? "block truncate" : "block truncate line-through"
+                          }
                         >
-                          ⚠
+                          {m.email}
                         </span>
-                      )}
+                        {m.reason && (
+                          <span
+                            className={
+                              m.severity === "blocked"
+                                ? "text-destructive block leading-snug"
+                                : "block leading-snug text-amber-600 dark:text-amber-400"
+                            }
+                          >
+                            {m.reason}
+                          </span>
+                        )}
+                      </span>
                     </label>
                   ))}
                 </div>

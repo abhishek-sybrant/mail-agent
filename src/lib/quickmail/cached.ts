@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { mailboxHealth } from "@/lib/mailbox-health";
 import type { QmCampaign } from "./queries";
 
 /**
@@ -52,22 +53,59 @@ export async function cachedCampaigns(): Promise<{
   return { campaigns, syncedAt };
 }
 
+/**
+ * A sending mailbox as the composers need it: the address, and whether it can
+ * actually be used to send.
+ */
+export type CachedMailbox = {
+  id: string;
+  email: string;
+  assignable: boolean | null;
+  /** False when picking it would send to spam, or send nothing at all. */
+  usable: boolean;
+  severity: "ok" | "warn" | "blocked";
+  /** Why it cannot be used, or what is wrong with it. Null when healthy. */
+  reason: string | null;
+};
+
 /** Locally mirrored sending mailboxes — never an API call in a render path. */
 export async function cachedMailboxes(): Promise<{
-  mailboxes: { id: string; email: string; assignable: boolean | null }[];
+  mailboxes: CachedMailbox[];
   workspaceId: string | null;
+  /** How many of them must not be used, so a page can say so up front. */
+  blocked: number;
 }> {
   const rows = await prisma.qmMailbox.findMany({
     // Known-good mailboxes first, then untried, then known-bad.
     orderBy: [{ assignable: "desc" }, { email: "asc" }],
   });
-  return {
-    mailboxes: rows.map((r) => ({
+
+  /**
+   * The verdict is computed here, once.
+   *
+   * Both composers and the agent's plan read this, so a mailbox cannot be
+   * offered as safe in one place and refused in another.
+   */
+  const mailboxes = rows.map((r) => {
+    const v = mailboxHealth(r);
+    return {
       id: r.id,
       email: r.email,
       assignable: r.assignable,
-    })),
+      usable: v.usable,
+      severity: v.severity,
+      reason: v.reason,
+    };
+  });
+
+  // Unusable ones sink, but stay in the list: hiding them makes a mailbox look
+  // deleted, and someone goes looking in QuickMail for a sender that is there.
+  mailboxes.sort((a, b) => Number(b.usable) - Number(a.usable));
+
+  return {
+    mailboxes,
     workspaceId: rows[0]?.workspace_id ?? null,
+    blocked: mailboxes.filter((m) => !m.usable).length,
   };
 }
 

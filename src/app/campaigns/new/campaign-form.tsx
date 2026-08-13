@@ -29,7 +29,14 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtNumber } from "@/lib/format";
 
-export type Mailbox = { id: string; email: string };
+export type Mailbox = {
+  id: string;
+  email: string;
+  /** False when this sender would land in spam, or send nothing at all. */
+  usable: boolean;
+  severity: "ok" | "warn" | "blocked";
+  reason: string | null;
+};
 export type TemplateOption = {
   id: string;
   name: string;
@@ -493,18 +500,44 @@ export function CampaignForm({
             </CardTitle>
           </CardHeader>
           <CardContent className="max-h-72 space-y-1 overflow-y-auto">
+            {/**
+             * Senders that cannot deliver stay listed but unselectable, with
+             * the reason on the row. Hiding them makes a mailbox look deleted;
+             * leaving them selectable sends the campaign to spam.
+             */}
             {mailboxes.map((m) => (
               <label
                 key={m.id}
-                className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs"
+                title={m.reason ?? undefined}
+                className={
+                  m.usable
+                    ? "hover:bg-accent flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-xs"
+                    : "flex cursor-not-allowed items-start gap-2 rounded-md px-2 py-1.5 text-xs opacity-60"
+                }
               >
                 <input
                   type="checkbox"
-                  className="size-3.5"
+                  className="mt-0.5 size-3.5"
+                  disabled={!m.usable}
                   checked={mailboxSel.has(m.id)}
                   onChange={() => toggle(mailboxSel, m.id, setMailboxSel)}
                 />
-                <span className="truncate">{m.email}</span>
+                <span className="min-w-0 flex-1">
+                  <span className={m.usable ? "block truncate" : "block truncate line-through"}>
+                    {m.email}
+                  </span>
+                  {m.reason && (
+                    <span
+                      className={
+                        m.severity === "blocked"
+                          ? "text-destructive block leading-snug"
+                          : "block leading-snug text-amber-600 dark:text-amber-400"
+                      }
+                    >
+                      {m.reason}
+                    </span>
+                  )}
+                </span>
               </label>
             ))}
           </CardContent>

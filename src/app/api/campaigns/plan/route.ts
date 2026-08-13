@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { AiUnavailable, completeJson, providerFor } from "@/lib/ai/provider";
+import { bestMailbox, mailboxHealth } from "@/lib/mailbox-health";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
 export const maxDuration = 300;
@@ -20,6 +21,8 @@ export type PlanOption = {
   label: string;
   hint?: string;
   recommended: boolean;
+  /** Shown, but not choosable — see the mailbox question. */
+  disabled?: boolean;
 };
 
 export type PlanQuestion = {
@@ -170,6 +173,7 @@ export async function POST(request: Request) {
   ]);
 
   const lines = categories.map((c) => c.category!).filter(Boolean);
+  const recommendedMailboxId = bestMailbox(mailboxes)?.id ?? null;
 
   let plan: Plan;
   try {
@@ -305,11 +309,23 @@ suggested_titles should be job-title keywords that match the buyer, lowercase.`,
       id: "mailboxes",
       question: "Which mailboxes should send it?",
       multi: true,
-      options: mailboxes.map((m, i) => ({
-        id: m.id,
-        label: m.email,
-        recommended: i === 0,
-      })),
+      /**
+       * Recommending index 0 meant recommending whichever address sorted
+       * first, which is as likely to be a sender QuickMail has judged unfit as
+       * a good one. The verdict decides now: unusable senders are listed with
+       * their reason but cannot be chosen, and the first healthy one is
+       * pre-ticked.
+       */
+      options: mailboxes.map((m) => {
+        const v = mailboxHealth(m);
+        return {
+          id: m.id,
+          label: m.email,
+          hint: v.reason ?? undefined,
+          disabled: !v.usable,
+          recommended: v.usable && m.id === recommendedMailboxId,
+        };
+      }),
     },
     {
       id: "safety",

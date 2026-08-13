@@ -131,6 +131,29 @@ model QmMailbox {
    */
   authorized Boolean?
   qm_paused  Boolean?
+
+  /**
+   * QuickMail's own deliverability verdict on this sender.
+   *
+   * `accredited` false means QuickMail has judged the mailbox unfit to send —
+   * its mail is the kind that lands in spam. It is not something the v2 API
+   * exposes; it comes from the same internal endpoint the inbox list uses, so
+   * it is mirrored here rather than fetched while a page renders.
+   *
+   * `score` is their health number, and is null for most mailboxes: it only
+   * appears once a mailbox has been through the auto-warmer.
+   */
+  accredited    Boolean?
+  score         Int?
+  paused_reason String?
+  has_warmer    Boolean?
+
+  /// Today's sending, against the mailbox's own daily cap.
+  daily_sent  Int?
+  daily_quota Int?
+
+  /// When the health fields above were last read. Null means never.
+  health_at DateTime?
 }
 
 // ------------------------------------------------------------ templates

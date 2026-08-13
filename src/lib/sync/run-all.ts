@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { isConfigured } from "@/lib/quickmail/client";
 import { syncCampaigns, syncLeads, syncMailboxes } from "@/lib/quickmail/sync";
 import { withSession } from "@/lib/quickmail/inbox";
+import { syncInboxHealth } from "@/lib/quickmail/inbox-health";
 import { pullReplies } from "@/lib/quickmail/inbox-pull";
 import { applyDueSchedules } from "@/lib/quickmail/schedule";
 import { forwardPending, forwardingConfigured } from "@/lib/forward-reply";
@@ -333,7 +334,26 @@ async function execute(
       await add(
         await part("Mailboxes", async () => {
           const r = await syncMailboxes();
-          return `${r.total} mailboxes`;
+
+          /**
+           * Deliverability is a second, separate read.
+           *
+           * Whether a sender's mail lands is not in the v2 API — that only says
+           * whether the connection is alive — so the verdict comes from the
+           * internal endpoint over the browser session. Caught separately: a
+           * closed browser must not cost us the mailbox list itself, which the
+           * API returns perfectly well without one.
+           */
+          try {
+            const h = await withSession((s) => syncInboxHealth(s));
+            const bad = h.unaccredited.length;
+            return (
+              `${r.total} mailboxes, ${h.updated} health-checked` +
+              (bad ? ` — ${bad} not accredited to send` : "")
+            );
+          } catch {
+            return `${r.total} mailboxes — deliverability unread, no browser session`;
+          }
         }),
       );
     }

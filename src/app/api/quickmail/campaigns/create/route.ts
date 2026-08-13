@@ -15,6 +15,7 @@ import {
 } from "@/lib/quickmail/mutations";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 import { syncMailboxes } from "@/lib/quickmail/sync";
+import { mailboxHealth } from "@/lib/mailbox-health";
 import { normalise, partitionSuppressed } from "@/lib/suppression";
 import { TIMEZONES } from "@/lib/agent/campaign-spec";
 import {
@@ -225,9 +226,39 @@ export async function POST(request: Request) {
     score: l.ai_intent_score,
   }));
 
+  /**
+   * Refuse senders that cannot deliver, before even describing the plan.
+   *
+   * Same rule the pickers use, so the UI and the API cannot disagree — the UI
+   * disables them, but that is a courtesy and this route is reachable
+   * directly. Checked here rather than only on the live path because a preview
+   * that cheerfully lists "setCampaignEmailAccounts: 1 mailbox(es)" for a
+   * disconnected sender is a preview of something that will never send.
+   *
+   * The live path re-reads this from QuickMail afterwards: authorization is
+   * revoked without warning, so the mirror can be minutes out of date.
+   */
+  const chosenBoxes = await prisma.qmMailbox.findMany({
+    where: { id: { in: mailboxIds } },
+  });
+  const unusable = chosenBoxes.filter((m) => !mailboxHealth(m).usable);
+
+  if (mailboxIds.length > 0 && unusable.length === mailboxIds.length) {
+    return badRequest(
+      `No selected mailbox can send: ` +
+        unusable.map((d) => `${d.email} (${mailboxHealth(d).reason})`).join("; ") +
+        `. Pick another under Sending mailboxes, or fix it in QuickMail first.`,
+    );
+  }
+
   const plan = [
     { mutation: "createCampaign", detail: name },
-    { mutation: "setCampaignEmailAccounts", detail: `${mailboxIds.length} mailbox(es)` },
+    {
+      mutation: "setCampaignEmailAccounts",
+      detail:
+        `${mailboxIds.length - unusable.length} mailbox(es)` +
+        (unusable.length ? `, skipping ${unusable.length} that cannot send` : ""),
+    },
     ...(chosenDays.length > 0 || timeZone
       ? [
           {
@@ -286,6 +317,38 @@ export async function POST(request: Request) {
     }
     if (!workspaceId) return badRequest("No workspace available");
 
+    /**
+     * Refuse senders that cannot deliver — before anything is created.
+     *
+     * By the same rule the pickers use, so the UI and the API cannot disagree.
+     * The UI disables them, but that is a courtesy: this route is reachable
+     * directly. The check used to look only for a dead connection, which let an
+     * unaccredited mailbox through — one QuickMail has judged unfit, so it
+     * sends and lands in spam, and the campaign looks like it worked.
+     *
+     * Order matters. This ran after createCampaign, so refusing left an
+     * orphaned, stepless campaign behind in QuickMail every time.
+     *
+     * Read live rather than from cache: authorization is revoked without
+     * warning, and a mailbox that synced as authorized this morning has been
+     * dead by the afternoon.
+     */
+    await syncMailboxes().catch(() => undefined);
+
+    const selected = await prisma.qmMailbox.findMany({
+      where: { id: { in: mailboxIds } },
+    });
+    const dead = selected.filter((m) => !mailboxHealth(m).usable);
+    const deadIds = new Set(dead.map((d) => d.id));
+
+    if (mailboxIds.length > 0 && dead.length === mailboxIds.length) {
+      return badRequest(
+        `No selected mailbox can send: ` +
+          dead.map((d) => `${d.email} (${mailboxHealth(d).reason})`).join("; ") +
+          `. Pick another under Sending mailboxes, or fix it in QuickMail first.`,
+      );
+    }
+
     // 1 — the campaign shell
     const created = await query<{
       createCampaign: {
@@ -331,22 +394,9 @@ export async function POST(request: Request) {
         )?.id ?? null)
       : null;
 
-    await syncMailboxes().catch(() => undefined);
-    const dead = await prisma.qmMailbox.findMany({
-      where: { id: { in: mailboxIds }, OR: [{ authorized: false }, { qm_paused: true }] },
-    });
-    if (dead.length === mailboxIds.length) {
-      return badRequest(
-        `Every selected mailbox is disconnected in QuickMail ` +
-          `(${dead.map((d) => d.email).join(", ")}). Reconnect one under ` +
-          `Settings → Email Accounts, then create the campaign.`,
-      );
-    }
-    const deadIds = new Set(dead.map((d) => d.id));
+    // Some usable mailboxes remain, so the campaign goes ahead without these.
     for (const d of dead) {
-      warnings.push(
-        `Skipped ${d.email} — disconnected in QuickMail, it would never send.`,
-      );
+      warnings.push(`Skipped ${d.email} — ${mailboxHealth(d).reason}.`);
     }
 
     for (const mailboxId of mailboxIds.filter((id) => !deadIds.has(id))) {

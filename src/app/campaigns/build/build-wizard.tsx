@@ -23,7 +23,14 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchErrorMessage } from "@/lib/fetch-error";
 
-type Option = { id: string; label: string; hint?: string; recommended: boolean };
+type Option = {
+  id: string;
+  label: string;
+  hint?: string;
+  recommended: boolean;
+  /** Listed so it is not mistaken for missing, but cannot be chosen. */
+  disabled?: boolean;
+};
 type Question = {
   id: string;
   question: string;
@@ -234,11 +241,12 @@ export function BuildWizard({
       setTemplates(json.templates ?? null);
       setFirstId(json.templates?.chosen_first_id ?? null);
       setFollowUpId(json.templates?.chosen_follow_up_id ?? null);
-      // Pre-tick whatever the planner recommended.
+      // Pre-tick whatever the planner recommended — never a disabled option,
+      // which would submit a sender the plan has just said cannot deliver.
       const seeded: Record<string, Set<string>> = {};
       for (const q of json.questions as Question[]) {
         seeded[q.id] = new Set(
-          q.options.filter((o) => o.recommended).map((o) => o.id),
+          q.options.filter((o) => o.recommended && !o.disabled).map((o) => o.id),
         );
       }
       setAnswers(seeded);
@@ -466,19 +474,39 @@ export function BuildWizard({
                   return (
                     <label
                       key={o.id}
-                      className="hover:bg-accent flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 text-sm"
+                      title={o.disabled ? o.hint : undefined}
+                      className={
+                        o.disabled
+                          ? "flex cursor-not-allowed items-start gap-3 rounded-md px-2 py-2 text-sm opacity-60"
+                          : "hover:bg-accent flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 text-sm"
+                      }
                     >
                       <input
                         type={q.multi ? "checkbox" : "radio"}
                         name={q.id}
                         className="mt-0.5 size-4 shrink-0"
+                        disabled={o.disabled}
                         checked={on}
                         onChange={() => toggle(q.id, o.id, q.multi)}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block break-words">{o.label}</span>
+                        <span
+                          className={
+                            o.disabled
+                              ? "block break-words line-through"
+                              : "block break-words"
+                          }
+                        >
+                          {o.label}
+                        </span>
                         {o.hint && (
-                          <span className="text-muted-foreground text-xs">
+                          <span
+                            className={
+                              o.disabled
+                                ? "text-destructive text-xs"
+                                : "text-muted-foreground text-xs"
+                            }
+                          >
                             {o.hint}
                           </span>
                         )}
