@@ -553,7 +553,7 @@ function ThreadCard({
      */
     <Card
       className={cn(
-        index % 2 === 0 ? "bg-muted/50" : "bg-muted/20",
+        index % 2 === 0 ? "bg-muted" : "bg-muted/50",
         item.handledAt && "opacity-70",
       )}
     >
