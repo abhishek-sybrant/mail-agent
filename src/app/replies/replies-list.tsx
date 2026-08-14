@@ -556,19 +556,20 @@ function ThreadCard({
      * opacities of one of them, produced a difference of about two points of
      * lightness. Real, measurable, and invisible on a screen.
      *
-     * One grey at two strengths — 75% and 48% — so the pair stays related
-     * rather than reading as two different colours. Light enough that the body
-     * text keeps its contrast: these rows carry whole emails, signatures
-     * included, not one line of summary.
+     * The grey row first, smoke white second. Composited over the page that is
+     * #eaeaea against #f5f5f5 — close enough to stay quiet, far enough apart
+     * to show where one thread ends.
      *
-     * Both halves carry a dark-mode counterpart, so the pattern survives the
-     * theme rather than inverting into mud.
+     * Kept light on purpose: these rows carry whole emails, signatures
+     * included, so the body text needs its contrast more than the stripe needs
+     * its drama. Both halves have a dark-mode counterpart, so the pattern
+     * survives the theme rather than inverting into mud.
      */
     <Card
       className={cn(
         index % 2 === 0
-          ? "bg-neutral-300/75 dark:bg-neutral-700/75"
-          : "bg-neutral-300/48 dark:bg-neutral-700/48",
+          ? "bg-neutral-300/48 dark:bg-neutral-700/48"
+          : "bg-neutral-100 dark:bg-neutral-800",
         item.handledAt && "opacity-70",
       )}
     >
