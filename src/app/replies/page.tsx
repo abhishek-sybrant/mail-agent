@@ -183,6 +183,7 @@ export default async function RepliesPage({
     state: c.state,
     replyType: c.reply_type,
     isOoo: c.is_ooo,
+    channel: c.channel,
     aiSummary: c.ai_summary,
     waitingSince: c.waiting_since?.toISOString() ?? null,
     canReply: Boolean(c.replyable_todo_id && c.inbox_id),

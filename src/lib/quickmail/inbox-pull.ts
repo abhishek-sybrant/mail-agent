@@ -8,7 +8,7 @@ import {
   type Session,
 } from "./inbox";
 import { refreshThread, storeThread } from "./inbox-sync";
-import { refreshSender } from "./sender";
+import { campaignSender, refreshSender } from "./sender";
 
 /**
  * Pulling QuickMail's reply inbox into the local mirror.
@@ -144,9 +144,25 @@ export async function pullReplies(
       if (thread) {
         result.threads++;
         result.messages += await storeThread(thread, o.prospect?.email ?? null);
-        // Attribution comes from the thread, not from the opportunity's inbox,
-        // which forwarding rewrites. Only possible once messages are stored.
-        await refreshSender(o.id);
+        /**
+         * Attribution comes from the thread, not from the opportunity's inbox,
+         * which forwarding rewrites. Only possible once messages are stored.
+         *
+         * Falling back to the campaign's own mailbox covers the threads whose
+         * messages hold no address of ours — an old conversation imported into
+         * a campaign, where the one message on file is the prospect forwarding
+         * it to a colleague.
+         */
+        const sender = await refreshSender(o.id);
+        if (!sender && o.campaign?.id) {
+          const fromCampaign = await campaignSender(s, o.campaign.id);
+          if (fromCampaign) {
+            await prisma.qmConversation.update({
+              where: { id: o.id },
+              data: { sender_email: fromCampaign },
+            });
+          }
+        }
       }
     }
 

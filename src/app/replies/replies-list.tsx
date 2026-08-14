@@ -47,6 +47,8 @@ export type ReplyThread = {
   state: string | null;
   replyType: string | null;
   isOoo: boolean;
+  /** "email" or "linkedin", from QuickMail. */
+  channel: string | null;
   aiSummary: string | null;
   waitingSince: string | null;
   /** QuickMail will accept a reply on this thread. */
@@ -471,6 +473,17 @@ function ThreadCard({
     !item.suppressed &&
     (item.replyType === "NEGATIVE" || item.replyType === "UNSUBSCRIBE");
 
+  /**
+   * LinkedIn outreach has nothing to reply with.
+   *
+   * QuickMail files it as an opportunity like any email thread, but there is no
+   * address and no replyable message — 0 of 47 carry one. Everything below the
+   * conversation is about composing and sending an email, so for these it is a
+   * drafting box that can never send, a "stop emailing" for someone we are not
+   * emailing, and a calendar invite with no address to send it to.
+   */
+  const isLinkedIn = item.channel === "linkedin";
+
   // Collapsed in the list; the single-thread page passes startOpen.
   const [open, setOpen] = useState(startOpen);
   const [draft, setDraft] = useState("");
@@ -733,7 +746,9 @@ function ThreadCard({
               </p>
             )}
             <p className="text-muted-foreground mt-1.5 truncate text-[11px]">
-              via {item.inboxEmail ?? "unknown mailbox"}
+              {/* LinkedIn has no mailbox by design, so "unknown mailbox" reads
+                  as missing data rather than as a different channel. */}
+              {isLinkedIn ? "via LinkedIn" : `via ${item.inboxEmail ?? "unknown mailbox"}`}
               {item.campaignName ? ` · ${item.campaignName}` : ""}
               {item.waitingSince ? ` · ${fmtDateTime(item.waitingSince)}` : ""}
             </p>
@@ -856,6 +871,37 @@ function ThreadCard({
               </div>
             )}
 
+            {isLinkedIn ? (
+              <>
+                <Separator />
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-muted-foreground flex-1 text-xs">
+                    LinkedIn outreach — there is no email address here and
+                    nothing to reply to. Answer it in QuickMail.
+                  </p>
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={item.qmUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="size-4" />
+                      Open in QuickMail
+                    </a>
+                  </Button>
+                  {/* Kept so these can leave the queue; without it 47 threads
+                      sit in the list for good. */}
+                  {!item.handledAt && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy !== null}
+                      onClick={() => act("ignore")}
+                    >
+                      <Check className="size-4" />
+                      Done
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
             <Separator />
 
             {/* Draft. */}
@@ -1156,6 +1202,8 @@ function ThreadCard({
               <p className="text-muted-foreground text-xs">
                 Booking link: <span className="font-mono">{bookingLink}</span>
               </p>
+            )}
+              </>
             )}
           </>
         )}

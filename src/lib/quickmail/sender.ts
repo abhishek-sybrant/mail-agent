@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Session } from "./inbox";
 
 /**
  * Which mailbox actually ran the campaign behind a reply thread.
@@ -179,4 +180,73 @@ export async function backfillSenders(): Promise<{ scanned: number; set: number 
   }
 
   return { scanned: convos.length, set };
+}
+
+const CAMPAIGN_INBOXES = `
+  query campaignInboxes($campaignId: ID!) {
+    campaign(campaignId: $campaignId) {
+      id
+      allInboxes { id email assigned }
+    }
+  }
+`;
+
+/**
+ * The mailbox a campaign actually sends from.
+ *
+ * The last resort, and the only thing that can attribute a thread whose stored
+ * messages hold no address of ours — an old conversation imported into a
+ * campaign, where the one message on file is the prospect forwarding it to a
+ * colleague. QuickMail lists every mailbox available to a campaign and flags
+ * the ones actually attached, so `assigned` is the field that matters: "CAM
+ * Services" offers seventeen and uses one.
+ *
+ * Ambiguous when a campaign runs several mailboxes, so it only answers when
+ * exactly one is assigned. A guess between two is not an attribution.
+ */
+export async function campaignSender(
+  s: Session,
+  campaignId: string,
+): Promise<string | null> {
+  try {
+    const d = await s.gql<{
+      campaign: { allInboxes: { email: string; assigned: boolean }[] } | null;
+    }>(CAMPAIGN_INBOXES, { campaignId });
+
+    const assigned = (d.campaign?.allInboxes ?? []).filter((b) => b.assigned);
+    return assigned.length === 1 ? assigned[0].email.trim().toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fills in senders for threads the messages could not attribute, using the
+ * campaign each one belongs to. Cached per campaign — a workspace has far
+ * fewer campaigns than threads.
+ */
+export async function backfillFromCampaigns(
+  s: Session,
+): Promise<{ considered: number; set: number }> {
+  const rows = await prisma.qmConversation.findMany({
+    where: { sender_email: null, NOT: [{ channel: "linkedin" }, { qm_campaign_id: null }] },
+    select: { id: true, qm_campaign_id: true },
+  });
+
+  const cache = new Map<string, string | null>();
+  let set = 0;
+
+  for (const r of rows) {
+    const id = r.qm_campaign_id!;
+    if (!cache.has(id)) cache.set(id, await campaignSender(s, id));
+    const email = cache.get(id);
+    if (!email) continue;
+    await prisma.qmConversation.update({
+      where: { id: r.id },
+      data: { sender_email: email },
+    });
+    set++;
+  }
+
+  return { considered: rows.length, set };
 }
