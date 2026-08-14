@@ -548,12 +548,23 @@ function ThreadCard({
   return (
     /**
      * Alternating shades, so where one thread ends and the next begins is
-     * readable at a glance. A column of identically coloured cards runs
-     * together once the bodies are more than a couple of lines.
+     * readable at a glance.
+     *
+     * Explicit greys rather than the theme's surface tokens. `--muted`,
+     * `--secondary` and `--accent` are all oklch(0.97 0 0) in this theme — one
+     * grey, three percent off white — so alternating between them, or between
+     * opacities of one of them, produced a difference of about two points of
+     * lightness. Real, measurable, and invisible on a screen.
+     *
+     * These two are sixteen steps apart on the neutral scale, which reads as a
+     * stripe without shouting. Both halves carry a dark-mode counterpart, so
+     * the pattern survives the theme rather than inverting into mud.
      */
     <Card
       className={cn(
-        index % 2 === 0 ? "bg-muted" : "bg-muted/50",
+        index % 2 === 0
+          ? "bg-neutral-100 dark:bg-neutral-800"
+          : "bg-neutral-200/70 dark:bg-neutral-700/50",
         item.handledAt && "opacity-70",
       )}
     >
