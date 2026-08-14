@@ -1706,6 +1706,37 @@ function FollowUpEditor({
 
       {followUps.map((f, i) => (
         <div key={i} className="space-y-2 rounded-md border p-2.5">
+          {/**
+           * Each one says which of how many it is.
+           *
+           * Identical bordered boxes stacked on top of each other gave no way
+           * to tell the second follow-up from the third while editing, and the
+           * only ordering cue was the wait line — which reads as a duration,
+           * not a position.
+           */}
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-medium">
+              Follow-up {i + 1} of {followUps.length}
+            </p>
+            <Badge variant="outline" className="text-[10px]">
+              email {i + 2} in the sequence
+            </Badge>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto h-7"
+              title={`Remove follow-up ${i + 1}`}
+              onClick={() =>
+                setSpec({
+                  ...spec,
+                  followUps: followUps.filter((_, j) => j !== i),
+                })
+              }
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
+
           <div className="flex items-center gap-2 text-xs">
             <span className="text-muted-foreground">Wait</span>
             <Input
@@ -1719,21 +1750,9 @@ function FollowUpEditor({
               }
             />
             <span className="text-muted-foreground">
-              business days after {i === 0 ? "the first email" : `step ${i + 1}`}
+              business days after{" "}
+              {i === 0 ? "the first email" : `follow-up ${i}`}
             </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto h-7"
-              onClick={() =>
-                setSpec({
-                  ...spec,
-                  followUps: followUps.filter((_, j) => j !== i),
-                })
-              }
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
           </div>
 
           <Input

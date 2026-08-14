@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export type ThreadMessage = {
   id: string;
@@ -311,10 +312,11 @@ export function RepliesList({
           </CardContent>
         </Card>
       ) : (
-        items.map((item) => (
+        items.map((item, i) => (
           <ThreadCard
             key={item.id}
             item={item}
+            index={i}
             bookingLink={bookingLink}
             liveSending={liveSending}
           />
@@ -326,11 +328,14 @@ export function RepliesList({
 
 function ThreadCard({
   item,
+  index = 0,
   bookingLink,
   liveSending,
   startOpen = false,
 }: {
   item: ReplyThread;
+  /** Position in the list, so consecutive threads alternate shade. */
+  index?: number;
   bookingLink: string | null;
   liveSending: boolean;
   startOpen?: boolean;
@@ -541,7 +546,17 @@ function ThreadCard({
     )}`;
 
   return (
-    <Card className={item.handledAt ? "opacity-70" : undefined}>
+    /**
+     * Alternating shades, so where one thread ends and the next begins is
+     * readable at a glance. A column of identically coloured cards runs
+     * together once the bodies are more than a couple of lines.
+     */
+    <Card
+      className={cn(
+        index % 2 === 0 ? "bg-muted/50" : "bg-muted/20",
+        item.handledAt && "opacity-70",
+      )}
+    >
       <CardContent className="space-y-4 py-5">
         {/*
           The QuickMail link sits outside the expand button on purpose — an
