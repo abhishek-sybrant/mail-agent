@@ -111,6 +111,8 @@ export function RepliesList({
   query,
   tone,
   toneCounts,
+  inboxes,
+  inbox,
   lastSync,
   singleThread = false,
 }: {
@@ -124,6 +126,10 @@ export function RepliesList({
   query: string;
   tone: string;
   toneCounts: { positive: number; neutral: number; negative: number; all: number };
+  /** Sending mailboxes with a reply, most active first. */
+  inboxes: { email: string; count: number }[];
+  /** The mailbox currently filtered to, or "" for all of them. */
+  inbox: string;
   lastSync: string | null;
   /**
    * Rendered for one conversation, from the deep link in a forwarded email.
@@ -145,6 +151,7 @@ export function RepliesList({
       show: includeHandled ? "all" : "",
       q: query,
       tone,
+      inbox,
       ...over,
     };
     for (const [k, v] of Object.entries(state)) if (v) p.set(k, v);
@@ -302,26 +309,117 @@ export function RepliesList({
         </div>
       )}
 
-      {items.length === 0 ? (
-        <Card>
-          <CardContent className="text-muted-foreground py-16 text-center text-sm">
-            Nothing here.{" "}
-            {!includeOoo && oooHidden > 0
-              ? `${oooHidden} auto-replies are hidden.`
-              : "Run the reply sync to pull the latest from QuickMail."}
-          </CardContent>
-        </Card>
-      ) : (
-        items.map((item, i) => (
-          <ThreadCard
-            key={item.id}
-            item={item}
-            index={i}
-            bookingLink={bookingLink}
-            liveSending={liveSending}
-          />
-        ))
-      )}
+      {/**
+       * The list, and beside it the mailboxes that produced it.
+       *
+       * Which sender a reply came back to is the one dimension this page could
+       * not slice on, and it is the one that matters when a single mailbox is
+       * producing all the rejections — that is a deliverability signal, not a
+       * copy problem. The tone buckets above stay live inside the choice, so
+       * "negatives, from this mailbox" is two clicks.
+       */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="min-w-0 space-y-4">
+          {items.length === 0 ? (
+            <Card>
+              <CardContent className="text-muted-foreground py-16 text-center text-sm">
+                Nothing here.{" "}
+                {inbox
+                  ? `Nothing from ${inbox} in this bucket.`
+                  : !includeOoo && oooHidden > 0
+                    ? `${oooHidden} auto-replies are hidden.`
+                    : "Run the reply sync to pull the latest from QuickMail."}
+              </CardContent>
+            </Card>
+          ) : (
+            items.map((item, i) => (
+              <ThreadCard
+                key={item.id}
+                item={item}
+                index={i}
+                bookingLink={bookingLink}
+                liveSending={liveSending}
+              />
+            ))
+          )}
+        </div>
+
+        <aside className="xl:sticky xl:top-6 xl:self-start">
+          <Card>
+            <CardContent className="p-0">
+              <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                <p className="text-sm font-medium">Sending mailbox</p>
+                {inbox && (
+                  <Link
+                    href={href({ inbox: "" })}
+                    className="text-muted-foreground hover:text-foreground text-xs"
+                  >
+                    Clear
+                  </Link>
+                )}
+              </div>
+
+              <div className="max-h-[70vh] divide-y overflow-y-auto border-t">
+                <Link
+                  href={href({ inbox: "" })}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 text-xs",
+                    inbox === ""
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "hover:bg-accent",
+                  )}
+                >
+                  <Mail className="size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">All mailboxes</span>
+                  {/**
+                   * The sum of the rows below, not toneCounts.all — that one is
+                   * scoped to the mailbox in hand, so with one selected this
+                   * row read 7 while the rows beneath it added to 137.
+                   */}
+                  <span className="tabular-nums">
+                    {inboxes.reduce((n, m) => n + m.count, 0)}
+                  </span>
+                </Link>
+
+                {inboxes.map((m) => {
+                  // LinkedIn outreach arrives with no inbox; it is a category,
+                  // not a gap, so it is labelled rather than hidden.
+                  const none = m.email === "__none__";
+                  return (
+                    <Link
+                      key={m.email}
+                      href={href({ inbox: m.email })}
+                      title={none ? "Threads with no sending mailbox" : m.email}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-2 text-xs",
+                        inbox === m.email
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "hover:bg-accent",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate",
+                          none && "text-muted-foreground italic",
+                        )}
+                      >
+                        {none ? "No sending mailbox" : m.email}
+                      </span>
+                      <span className="tabular-nums">{m.count}</span>
+                    </Link>
+                  );
+                })}
+
+                {inboxes.length === 0 && (
+                  <p className="text-muted-foreground px-3 py-6 text-center text-xs">
+                    No replies in this bucket.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -574,7 +672,7 @@ function ThreadCard({
       className={cn(
         index % 2 === 0
           ? "bg-neutral-300/48 dark:bg-neutral-700/48"
-          : "bg-neutral-100 dark:bg-neutral-800",
+          : "bg-neutral-50 dark:bg-neutral-800",
         item.handledAt && "opacity-70",
       )}
     >

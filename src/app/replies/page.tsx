@@ -13,6 +13,16 @@ export const dynamic = "force-dynamic";
  * dumped into "neutral": nothing has judged them, and filing them as neutral
  * would claim otherwise. They show under "All".
  */
+/**
+ * The filter value for threads with no sending mailbox on them.
+ *
+ * QuickMail files LinkedIn outreach as opportunities too, and those carry no
+ * inbox at all — 111 of them here. Dropping them from the panel made its
+ * counts sum to 26 against a total of 137, which reads as a broken number
+ * rather than a category.
+ */
+const NO_MAILBOX = "__none__";
+
 const TONE_GROUPS: Record<string, string[]> = {
   positive: ["POSITIVE", "MEETING_REQUEST"],
   neutral: ["NEUTRAL", "OUT_OF_OFFICE"],
@@ -22,13 +32,20 @@ const TONE_GROUPS: Record<string, string[]> = {
 export default async function RepliesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ooo?: string; show?: string; q?: string; tone?: string }>;
+  searchParams: Promise<{
+    ooo?: string;
+    show?: string;
+    q?: string;
+    tone?: string;
+    inbox?: string;
+  }>;
 }) {
   const params = await searchParams;
   const includeOoo = params.ooo === "1";
   const includeHandled = params.show === "all";
   const q = params.q?.trim() ?? "";
   const tone = params.tone && TONE_GROUPS[params.tone] ? params.tone : "";
+  const inbox = params.inbox?.trim() ?? "";
 
   /**
    * Search covers who it's from and what it says.
@@ -57,9 +74,17 @@ export default async function RepliesPage({
     ...(includeHandled ? {} : { handled_at: null }),
   };
 
+  /** The chosen sending mailbox, if any. */
+  const inboxWhere = inbox
+    ? inbox === NO_MAILBOX
+      ? { inbox_email: null }
+      : { inbox_email: inbox }
+    : {};
+
   const where = {
     ...base,
     ...search,
+    ...inboxWhere,
     ...(tone ? { reply_type: { in: TONE_GROUPS[tone] } } : {}),
   };
 
@@ -73,9 +98,21 @@ export default async function RepliesPage({
     },
   });
 
-  // Counts are computed against the same filters minus the tone, so switching
-  // buckets doesn't make the other counts jump around.
-  const scoped = { ...base, ...search };
+  /**
+   * Each set of counts drops its own filter, so switching within one set does
+   * not make its own numbers move under the cursor.
+   *
+   * Tone counts keep the mailbox filter — picking a mailbox should re-bucket
+   * that mailbox's replies, which is the point of the panel. Mailbox counts
+   * keep the tone filter for the mirror reason: with "Negative" selected, the
+   * panel should say how many negatives each mailbox has.
+   */
+  const scoped = { ...base, ...search, ...inboxWhere };
+  const mailboxScoped = {
+    ...base,
+    ...search,
+    ...(tone ? { reply_type: { in: TONE_GROUPS[tone] } } : {}),
+  };
   const [positive, neutral, negative, all, totalOoo, totalHandled, lastSync] =
     await Promise.all([
       prisma.qmConversation.count({
@@ -92,6 +129,33 @@ export default async function RepliesPage({
       prisma.qmConversation.count({ where: { NOT: { handled_at: null } } }),
       prisma.qmConversation.aggregate({ _max: { synced_at: true } }),
     ]);
+
+  /**
+   * Replies grouped by the mailbox that sent the campaign.
+   *
+   * Which sender a reply came back to is the one dimension the page had no way
+   * to slice on, and it is the one that matters when a single mailbox is
+   * producing all the rejections — that is a deliverability signal, not a
+   * copy problem.
+   */
+  const inboxGroups = await prisma.qmConversation.groupBy({
+    by: ["inbox_email"],
+    where: mailboxScoped,
+    _count: { _all: true },
+  });
+
+  const named = inboxGroups
+    .filter((g) => g.inbox_email)
+    .map((g) => ({ email: g.inbox_email as string, count: g._count._all }))
+    .sort((a, b) => b.count - a.count);
+
+  const noneCount =
+    inboxGroups.find((g) => !g.inbox_email)?._count._all ?? 0;
+
+  // The unattributed ones go last, so the column still sums to the total.
+  const inboxes = noneCount
+    ? [...named, { email: NO_MAILBOX, count: noneCount }]
+    : named;
 
   const items: ReplyThread[] = conversations.map((c) => ({
     id: c.id,
@@ -140,7 +204,7 @@ export default async function RepliesPage({
             : `${items.length} thread${items.length === 1 ? "" : "s"} from QuickMail.`
         }
       />
-      <div className="max-w-5xl p-8">
+      <div className="p-8">
         <RepliesList
           items={items}
           bookingLink={process.env.BOOKING_LINK?.trim() || null}
@@ -152,6 +216,8 @@ export default async function RepliesPage({
           query={q}
           tone={tone}
           toneCounts={{ positive, neutral, negative, all }}
+          inboxes={inboxes}
+          inbox={inbox}
           lastSync={lastSync._max.synced_at?.toISOString() ?? null}
         />
       </div>

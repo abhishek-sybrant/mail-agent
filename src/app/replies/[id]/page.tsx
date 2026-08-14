@@ -89,6 +89,8 @@ export default async function ReplyPage({
           liveSending={process.env.QUICKMAIL_DRY_RUN === "false"}
           oooHidden={0}
           handledCount={0}
+          inboxes={[]}
+          inbox=""
           includeOoo={false}
           includeHandled={false}
           query=""
