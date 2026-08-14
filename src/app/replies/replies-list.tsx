@@ -382,14 +382,25 @@ export function RepliesList({
                 </Link>
 
                 {inboxes.map((m) => {
-                  // LinkedIn outreach arrives with no inbox; it is a category,
-                  // not a gap, so it is labelled rather than hidden.
-                  const none = m.email === "__none__";
+                  /**
+                   * Two catch-alls, deliberately distinct. LinkedIn threads
+                   * have no mailbox because they are not email; the others are
+                   * email QuickMail has no sender recorded for. Reading them
+                   * as one bucket hides which is which.
+                   */
+                  const linkedin = m.email === "__linkedin__";
+                  const none = m.email === "__none__" || linkedin;
                   return (
                     <Link
                       key={m.email}
                       href={href({ inbox: m.email })}
-                      title={none ? "Threads with no sending mailbox" : m.email}
+                      title={
+                        linkedin
+                          ? "LinkedIn outreach — no mailbox, and nothing to reply to by email"
+                          : none
+                            ? "Email threads QuickMail has no sending mailbox for"
+                            : m.email
+                      }
                       className={cn(
                         "flex items-center gap-2 px-3 py-2 text-xs",
                         inbox === m.email
@@ -403,7 +414,11 @@ export function RepliesList({
                           none && "text-muted-foreground italic",
                         )}
                       >
-                        {none ? "No sending mailbox" : m.email}
+                        {linkedin
+                          ? "LinkedIn outreach"
+                          : none
+                            ? "Email, sender unknown"
+                            : m.email}
                       </span>
                       <span className="tabular-nums">{m.count}</span>
                     </Link>

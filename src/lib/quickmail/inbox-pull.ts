@@ -8,6 +8,7 @@ import {
   type Session,
 } from "./inbox";
 import { refreshThread, storeThread } from "./inbox-sync";
+import { refreshSender } from "./sender";
 
 /**
  * Pulling QuickMail's reply inbox into the local mirror.
@@ -110,6 +111,7 @@ export async function pullReplies(
       ai_summary: o.aiSummary,
       is_ooo: o.isOoo,
       waiting_since: o.waitingSince ? new Date(o.waitingSince) : null,
+      channel: o.channel,
       inbox_id: o.inbox?.id ?? null,
       inbox_email: o.inbox?.email ?? null,
       inbox_name: decodeEntities(o.inbox?.name),
@@ -142,6 +144,9 @@ export async function pullReplies(
       if (thread) {
         result.threads++;
         result.messages += await storeThread(thread, o.prospect?.email ?? null);
+        // Attribution comes from the thread, not from the opportunity's inbox,
+        // which forwarding rewrites. Only possible once messages are stored.
+        await refreshSender(o.id);
       }
     }
 

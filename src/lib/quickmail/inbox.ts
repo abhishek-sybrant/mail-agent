@@ -249,6 +249,15 @@ export type OpportunitySummary = {
   aiSummary: string | null;
   replyType: string | null;
   isOoo: boolean;
+  /**
+   * "email" or "linkedin", from QuickMail.
+   *
+   * The only reliable way to tell the two apart. LinkedIn outreach is filed as
+   * an opportunity exactly like an email thread, but has no address, no
+   * sending mailbox and nothing to reply to — inferring it from an address
+   * ending in @linkedin.profile happened to work and is not their contract.
+   */
+  channel: string | null;
   inbox: { id: string; email: string; name: string | null } | null;
   prospect: {
     id: string;
@@ -414,7 +423,11 @@ type ListResponse = {
           preview: string | null;
           waitingSince: string | null;
           aiSummary: string | null;
-          latestReply: { replyType: string | null; isOoo: boolean } | null;
+          latestReply: {
+            replyType: string | null;
+            isOoo: boolean;
+            channelType: string | null;
+          } | null;
           inbox: { id: string; name: string | null; email: string } | null;
           prospect: {
             id: string;
@@ -456,6 +469,7 @@ export async function listOpportunities(
       aiSummary: node.aiSummary,
       replyType: node.latestReply?.replyType ?? null,
       isOoo: node.latestReply?.isOoo ?? false,
+      channel: node.latestReply?.channelType ?? null,
       inbox: node.inbox
         ? { id: node.inbox.id, email: node.inbox.email, name: node.inbox.name }
         : null,

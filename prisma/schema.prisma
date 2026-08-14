@@ -511,6 +511,28 @@ model QmConversation {
   /// Recorded so a re-sync cannot forward the same reply twice — the sync runs
   /// on demand and re-reads threads it has already seen, so "have we sent this"
   /// has to be a stored fact rather than inferred from recency.
+  /**
+   * "email" or "linkedin", as QuickMail classifies it.
+   *
+   * LinkedIn outreach is filed as an opportunity exactly like an email thread,
+   * but carries no address, no sending mailbox and nothing to reply to. Told
+   * apart by their own channelType rather than by guessing from an address
+   * that happens to end in @linkedin.profile.
+   */
+  channel String?
+
+  /**
+   * The mailbox that actually ran the campaign, derived from the thread.
+   *
+   * Not `inbox_email`, which is whichever mailbox touched the opportunity most
+   * recently — and forwarding a reply to a manager touches it. That rewrote 57
+   * threads to the forwarding mailbox, so the panel reported it as the sender
+   * of 57 campaigns when the real sender of 33 of them was somebody else. This
+   * comes from the earliest outbound message in the thread, which nothing we
+   * do afterwards can change.
+   */
+  sender_email String?
+
   forwarded_at DateTime?
   forwarded_to String?
 

@@ -14,13 +14,19 @@ export const dynamic = "force-dynamic";
  * would claim otherwise. They show under "All".
  */
 /**
- * The filter value for threads with no sending mailbox on them.
+ * The two buckets for threads with no sending mailbox, and why there are two.
  *
- * QuickMail files LinkedIn outreach as opportunities too, and those carry no
- * inbox at all — 111 of them here. Dropping them from the panel made its
- * counts sum to 26 against a total of 137, which reads as a broken number
- * rather than a category.
+ * They are not one thing. QuickMail files LinkedIn outreach as opportunities
+ * exactly like email threads, and those have no address, no mailbox and
+ * nothing to reply to — 47 of them. Separately, 28 genuine email threads have
+ * no inbox recorded on QuickMail's side either; those are a gap in their data,
+ * not a different channel, and the difference matters when you are asking
+ * which sender produced a result.
+ *
+ * Told apart by QuickMail's own channelType rather than by an address that
+ * happens to end in @linkedin.profile.
  */
+const LINKEDIN = "__linkedin__";
 const NO_MAILBOX = "__none__";
 
 const TONE_GROUPS: Record<string, string[]> = {
@@ -75,11 +81,13 @@ export default async function RepliesPage({
   };
 
   /** The chosen sending mailbox, if any. */
-  const inboxWhere = inbox
-    ? inbox === NO_MAILBOX
-      ? { inbox_email: null }
-      : { inbox_email: inbox }
-    : {};
+  const inboxWhere = !inbox
+    ? {}
+    : inbox === LINKEDIN
+      ? { channel: "linkedin" }
+      : inbox === NO_MAILBOX
+        ? { sender_email: null, NOT: { channel: "linkedin" } }
+        : { sender_email: inbox };
 
   const where = {
     ...base,
@@ -138,24 +146,36 @@ export default async function RepliesPage({
    * producing all the rejections — that is a deliverability signal, not a
    * copy problem.
    */
+  /**
+   * Grouped by the derived sender, not by the opportunity's inbox.
+   *
+   * QuickMail sets that inbox to whichever mailbox touched the thread last, and
+   * forwarding a reply to a manager touches it — so grouping on it reported the
+   * forwarding mailbox as the sender of every thread we had forwarded.
+   */
   const inboxGroups = await prisma.qmConversation.groupBy({
-    by: ["inbox_email"],
-    where: mailboxScoped,
+    by: ["sender_email"],
+    where: { ...mailboxScoped, NOT: { channel: "linkedin" } },
     _count: { _all: true },
   });
 
+  const linkedinCount = await prisma.qmConversation.count({
+    where: { ...mailboxScoped, channel: "linkedin" },
+  });
+
   const named = inboxGroups
-    .filter((g) => g.inbox_email)
-    .map((g) => ({ email: g.inbox_email as string, count: g._count._all }))
+    .filter((g) => g.sender_email)
+    .map((g) => ({ email: g.sender_email as string, count: g._count._all }))
     .sort((a, b) => b.count - a.count);
 
-  const noneCount =
-    inboxGroups.find((g) => !g.inbox_email)?._count._all ?? 0;
+  const noneCount = inboxGroups.find((g) => !g.sender_email)?._count._all ?? 0;
 
-  // The unattributed ones go last, so the column still sums to the total.
-  const inboxes = noneCount
-    ? [...named, { email: NO_MAILBOX, count: noneCount }]
-    : named;
+  // The two catch-alls go last, so the column still sums to the total.
+  const inboxes = [
+    ...named,
+    ...(noneCount ? [{ email: NO_MAILBOX, count: noneCount }] : []),
+    ...(linkedinCount ? [{ email: LINKEDIN, count: linkedinCount }] : []),
+  ];
 
   const items: ReplyThread[] = conversations.map((c) => ({
     id: c.id,
