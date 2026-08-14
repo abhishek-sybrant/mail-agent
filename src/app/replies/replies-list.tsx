@@ -343,18 +343,23 @@ function ThreadCard({
   const router = useRouter();
 
   /**
-   * A thread the classifier flagged as wanting out is opened on arrival.
+   * A thread the classifier flagged as wanting out — a rejection or an opt-out
+   * that nobody has dealt with yet.
    *
-   * It is the one case where a person has to decide something rather than
-   * choose to look — leaving it collapsed behind a badge is how an opt-out sits
-   * unanswered.
+   * These used to open on arrival, on the reasoning that an opt-out left
+   * collapsed behind a badge is an opt-out that sits unanswered. With 38 of
+   * them in the list that made the whole page a wall of open threads, and
+   * scanning it became impossible — which loses more than it saved. The
+   * flagging still shows on the row, and still puts its question above the
+   * draft once the thread is opened.
    */
   const flagged =
     !item.handledAt &&
     !item.suppressed &&
     (item.replyType === "NEGATIVE" || item.replyType === "UNSUBSCRIBE");
 
-  const [open, setOpen] = useState(startOpen || flagged);
+  // Collapsed in the list; the single-thread page passes startOpen.
+  const [open, setOpen] = useState(startOpen);
   const [draft, setDraft] = useState("");
   const [draftSource, setDraftSource] = useState<{
     source: string;
