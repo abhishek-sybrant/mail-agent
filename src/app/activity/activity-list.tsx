@@ -160,6 +160,11 @@ export function ActivityList({
                       <span className="font-medium">
                         {r.who ?? "The hourly sync"}
                       </span>{" "}
+                      {!r.whoId && r.who && (
+                        <span className="text-muted-foreground text-xs">
+                          (account removed){" "}
+                        </span>
+                      )}
                       <span className="text-muted-foreground">
                         {actionLabel(r.action).toLowerCase()}
                       </span>{" "}

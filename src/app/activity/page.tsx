@@ -43,7 +43,8 @@ export default async function ActivityPage({
     action: r.action,
     subject: r.subject,
     detail: r.detail,
-    who: r.user ? (r.user.name ?? r.user.email) : null,
+    // The live account wins; the recorded name carries a deleted one.
+    who: r.user ? (r.user.name ?? r.user.email) : r.actor,
     whoId: r.user_id,
   }));
 
@@ -72,7 +73,7 @@ export default async function ActivityPage({
           peopleCounts={people
             .map((p) => ({
               id: p.user_id ?? "system",
-              label: p.user_id ? (byId.get(p.user_id) ?? "someone since removed") : "the app itself",
+              label: p.user_id ? (byId.get(p.user_id) ?? "an account since removed") : "the app itself",
               count: p._count._all,
             }))
             .sort((a, b) => b.count - a.count)}

@@ -7,6 +7,7 @@ import {
   Ban,
   Bot,
   History,
+  ShieldCheck,
   LayoutDashboard,
   LogOut,
   MailOpen,
@@ -49,13 +50,22 @@ export function Sidebar({
   pending = 0,
   replies = 0,
   userEmail,
+  isAdmin = false,
 }: {
   pending?: number;
   replies?: number;
   userEmail?: string | null;
+  /** Only admins manage accounts, so only they are offered the tab. */
+  isAdmin?: boolean;
 }) {
   const counts = { pending, replies };
   const pathname = usePathname();
+
+  // Users is admin-only. The page redirects a member who types the URL; this
+  // just stops offering them a door they cannot open.
+  const nav = isAdmin
+    ? [...NAV, { href: "/users", label: "Users", icon: ShieldCheck }]
+    : NAV;
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
@@ -68,7 +78,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
-        {NAV.map(({ href, label, icon: Icon, badge }) => {
+        {nav.map(({ href, label, icon: Icon, badge }) => {
           const count = badge ? counts[badge] : 0;
 
           // "/leads" must not light up when we're on "/leads/import".

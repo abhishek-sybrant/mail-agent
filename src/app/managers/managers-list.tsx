@@ -215,7 +215,6 @@ export function ManagersList({
               <Input
                 id="m-name"
                 value={name}
-                placeholder="Abhishek S"
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") add();

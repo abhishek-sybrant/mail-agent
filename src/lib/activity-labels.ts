@@ -23,6 +23,10 @@ export const ACTIONS = {
   "template.save": "Saved a template",
   "approval.decide": "Decided an approval",
   "sync.switch": "Turned a sync job on or off",
+  "user.add": "Added an account",
+  "user.role": "Changed an account's role",
+  "user.password": "Reset an account's password",
+  "user.remove": "Removed an account",
 } as const;
 
 export type ActivityAction = keyof typeof ACTIONS;

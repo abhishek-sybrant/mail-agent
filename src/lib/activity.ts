@@ -29,12 +29,19 @@ export async function logActivity(
 ): Promise<void> {
   try {
     const session = await auth();
+    const who = session?.user as
+      | { id?: string; name?: string | null; email?: string | null }
+      | undefined;
+
     await prisma.activityLog.create({
       data: {
         action,
         subject: subject.slice(0, 300),
         detail: detail?.slice(0, 500) ?? null,
-        user_id: session?.user?.id ?? null,
+        user_id: who?.id ?? null,
+        // Written down as well as linked, so removing the account later leaves
+        // the line attributed rather than looking automatic.
+        actor: who?.name ?? who?.email ?? null,
       },
     });
   } catch {

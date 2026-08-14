@@ -66,6 +66,7 @@ export default async function RootLayout({
             pending={pending}
             replies={replies}
             userEmail={session.user.email}
+            isAdmin={(session.user as { role?: string }).role === "ADMIN"}
           />
         )}
         <main className="min-w-0 flex-1">{children}</main>

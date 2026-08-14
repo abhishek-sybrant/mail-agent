@@ -682,6 +682,16 @@ model ActivityLog {
   /// Null for anything that happened before this log existed, or for the timer.
   user_id String?
 
+  /**
+   * The person's name as it was at the time.
+   *
+   * Kept alongside the relation because removing an account sets user_id to
+   * null, and a line with no user reads as work the app did on its own. A
+   * deleted colleague's actions must not turn into "the hourly sync" — that is
+   * the opposite of an audit trail.
+   */
+  actor String?
+
   /// A short verb: campaign.create, reply.send, prospect.stop, block.add.
   action String
 
