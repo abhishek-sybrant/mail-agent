@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logActivity } from "@/lib/activity";
 import { prisma } from "@/lib/prisma";
 import { badRequest, optionalString, readJson } from "@/lib/webhook";
 
@@ -80,6 +81,13 @@ export async function POST(request: Request) {
   const template = id
     ? await prisma.template.update({ where: { id }, data })
     : await prisma.template.create({ data });
+
+  await logActivity(
+    "template.save",
+    template.name,
+    `${template.kind}${template.category ? ` · ${template.category}` : ""}` +
+      (id ? " · edited" : " · new"),
+  );
 
   return NextResponse.json({ ok: true, template });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logActivity } from "@/lib/activity";
 import { prisma } from "@/lib/prisma";
 import { suppress, suppressDomain } from "@/lib/suppression";
 import { stopProspect, withSession, type StopResult } from "@/lib/quickmail/inbox";
@@ -169,7 +170,13 @@ export async function POST(request: Request) {
      * traceable to a person even when the reviewer chose it themselves rather
      * than answering a flag the classifier raised.
      */
-    if (action === "stop" && cleared.count === 0) {
+    await logActivity(
+    action === "stop" ? "prospect.stop" : "thread.done",
+    convo.prospect_email ?? convo.id,
+    convo.campaign_name ?? null,
+  );
+
+  if (action === "stop" && cleared.count === 0) {
       await prisma.approval.create({
         data: {
           type: "STOP_SEQUENCE",

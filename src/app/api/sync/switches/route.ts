@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logActivity } from "@/lib/activity";
 import { badRequest, readJson } from "@/lib/webhook";
 import { SWITCHES, setSwitch, switchStates, type SwitchKey } from "@/lib/sync/switches";
 
@@ -38,5 +39,6 @@ export async function POST(request: Request) {
   }
 
   await setSwitch(key as SwitchKey, parsed.data.on);
+  await logActivity("sync.switch", key, parsed.data.on ? "started" : "stopped");
   return NextResponse.json({ ok: true, switches: await switchStates() });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logActivity } from "@/lib/activity";
 import { prisma } from "@/lib/prisma";
 import { isSuppressed } from "@/lib/suppression";
 import { sendReply, withSession } from "@/lib/quickmail/inbox";
@@ -158,6 +159,13 @@ export async function POST(request: Request) {
         },
       });
     }
+
+    await logActivity(
+      "reply.send",
+      to,
+      `${convo.campaign_name ?? "no campaign"} · from ${convo.inbox_email ?? "unknown mailbox"}` +
+        (result.dryRun ? " · dry run, nothing sent" : ""),
+    );
 
     return NextResponse.json({
       ok: true,

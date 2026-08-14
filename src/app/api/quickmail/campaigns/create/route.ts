@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logActivity } from "@/lib/activity";
 import { prisma } from "@/lib/prisma";
 import { isDryRun, query, QuickMailError } from "@/lib/quickmail/client";
 import {
@@ -696,6 +697,13 @@ export async function POST(request: Request) {
         );
       }
     }
+
+    await logActivity(
+      "campaign.create",
+      campaign.name,
+      `${enrolled} leads · ${assigned.length} mailbox(es) · ${launchMode}` +
+        (warnings.length ? ` · ${warnings.length} warning(s)` : ""),
+    );
 
     return NextResponse.json({
       ok: true,

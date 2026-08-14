@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logActivity } from "@/lib/activity";
 import { domainOf, suppress, suppressDomain, unsuppress } from "@/lib/suppression";
 import { withSession } from "@/lib/quickmail/inbox";
 import {
@@ -69,6 +70,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `${value} is not blocked` }, { status: 404 });
     }
 
+    await logActivity(
+      "block.remove",
+      value,
+      removedThere > 0 ? "lifted here and in QuickMail" : "lifted here",
+    );
+
     return NextResponse.json({ ok: true, ...result, quickmail, removedThere });
   }
 
@@ -112,6 +119,12 @@ export async function POST(request: Request) {
         quickmail = error instanceof Error ? error.message : "QuickMail unreachable";
       }
 
+      await logActivity(
+        "block.add",
+        `@${d.domain}`,
+        `whole domain · ${reason}` + (inQuickMail ? " · also in QuickMail" : ""),
+      );
+
       return NextResponse.json({ ok: true, scope, ...d, inQuickMail, quickmail });
     }
 
@@ -144,6 +157,12 @@ export async function POST(request: Request) {
     } catch (error) {
       quickmail = error instanceof Error ? error.message : "QuickMail unreachable";
     }
+
+    await logActivity(
+      "block.add",
+      value,
+      `${reason}` + (inQuickMail ? " · also in QuickMail" : ""),
+    );
 
     return NextResponse.json({ ok: true, scope, ...r, inQuickMail, quickmail });
   } catch (error) {

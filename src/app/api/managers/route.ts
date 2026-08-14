@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logActivity } from "@/lib/activity";
 import {
   addManager,
   listManagers,
@@ -37,6 +38,12 @@ export async function POST(request: Request) {
   const id = optionalString(parsed.data.id);
   if (id && typeof parsed.data.active === "boolean") {
     await setManagerActive(id, parsed.data.active);
+    const who = (await listManagers()).find((m) => m.id === id);
+    await logActivity(
+      "manager.pause",
+      who?.email ?? id,
+      parsed.data.active ? "resumed" : "paused",
+    );
     return NextResponse.json({ ok: true, managers: await listManagers() });
   }
 
@@ -53,6 +60,7 @@ export async function POST(request: Request) {
     return badRequest(error instanceof Error ? error.message : "Could not add that");
   }
 
+  await logActivity("manager.add", email);
   return NextResponse.json({ ok: true, managers: await listManagers() });
 }
 
@@ -68,6 +76,8 @@ export async function DELETE(request: Request) {
   const id = optionalString(parsed.data.id);
   if (!id) return badRequest("`id` is required");
 
+  const gone = (await listManagers()).find((m) => m.id === id);
   await removeManager(id);
+  await logActivity("manager.remove", gone?.email ?? id);
   return NextResponse.json({ ok: true, managers: await listManagers() });
 }

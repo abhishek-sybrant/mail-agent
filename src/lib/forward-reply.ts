@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { replyText } from "@/lib/quickmail/mail-text";
 import { sendReply, withSession } from "@/lib/quickmail/inbox";
 import { activeManagerEmails } from "@/lib/managers";
+import { logSystemActivity } from "@/lib/activity";
 
 /**
  * Emailing an inbound reply to whoever handles them.
@@ -333,6 +334,14 @@ export async function forwardReply(
       // Record everyone it went to, not just the first name on the envelope.
       data: { forwarded_at: new Date(), forwarded_to: recipients.join(", ") },
     });
+
+    // The hourly pass does this on its own, so it is logged as the system
+    // rather than as whoever happened to be signed in.
+    await logSystemActivity(
+      "thread.forward",
+      convo.prospect_email ?? conversationId,
+      `to ${recipients.join(", ")}`,
+    );
 
     return { sent: true, to };
   } catch (error) {

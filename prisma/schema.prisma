@@ -30,6 +30,7 @@ model User {
   created_at    DateTime @default(now())
 
   approvals Approval[]
+  activity  ActivityLog[]
 }
 
 // ---------------------------------------------------------------- leads
@@ -661,6 +662,41 @@ model Manager {
  * the thing is running — stopping the manager forwarding mid-backlog, say —
  * from whichever machine they happen to have the dashboard open on.
  */
+/**
+ * Who did what, and when.
+ *
+ * Nothing recorded it before. Campaign creation, sending a reply, blocking an
+ * address — all of it happened with no trace of the person behind it, so
+ * "who made this campaign" could only be answered by asking around. The one
+ * exception was an approval's `resolved_by`, which is why those records
+ * backfill into here.
+ *
+ * Deliberately append-only and deliberately not a foreign key on the subject:
+ * the point is that the record survives the thing it describes being deleted.
+ */
+model ActivityLog {
+  id String @id @default(cuid())
+
+  at DateTime @default(now())
+
+  /// Null for anything that happened before this log existed, or for the timer.
+  user_id String?
+
+  /// A short verb: campaign.create, reply.send, prospect.stop, block.add.
+  action String
+
+  /// What it acted on, already readable — an address, a campaign name.
+  subject String
+
+  /// Anything worth keeping that is not the subject. Free text, never parsed.
+  detail String?
+
+  user User? @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([at])
+  @@index([action])
+}
+
 model AppSetting {
   key        String   @id
   value      String

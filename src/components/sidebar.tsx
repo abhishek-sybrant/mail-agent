@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import {
   Ban,
   Bot,
-  CheckSquare,
+  History,
   LayoutDashboard,
   LogOut,
   MailOpen,
@@ -30,9 +30,17 @@ const NAV = [
   { href: "/replies", label: "Replies", icon: MailOpen, badge: "replies" as const },
   { href: "/managers", label: "Managers", icon: UserRound },
   { href: "/stopped", label: "Stopped", icon: Ban },
-  { href: "/approvals", label: "Approvals", icon: CheckSquare, badge: "pending" as const },
+  { href: "/activity", label: "Activity", icon: History },
 ];
 
+// Not in the nav: /approvals or /settings/webhooks.
+//
+// Approvals can no longer receive work — pending items only ever came from the
+// reply webhook, which needs a public URL and has never fired — so its badge
+// pointed permanently at one stale item from July. The records it still writes
+// are the audit trail, and those now show on Activity. The page stays reachable
+// by URL so that stale item can be resolved.
+//
 // Not in the nav: /settings/webhooks. The webhook endpoints are live, but they
 // only fire once the app is reachable from the internet, so the page is setup
 // documentation rather than something to check daily. Reach it by URL.
