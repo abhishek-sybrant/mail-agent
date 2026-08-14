@@ -93,20 +93,33 @@ export function deriveSender(
   }
 
   /**
-   * Only ever one of our own mailboxes.
+   * Ours, by mailbox or by domain.
    *
-   * The earliest outbound message is usually the campaign's send, but a quoted
-   * or forwarded message can be filed as outbound carrying a prospect's
-   * address — which put two prospects, and two Sybrant addresses that are not
-   * QuickMail mailboxes at all, into a list headed "Sending mailbox". An
-   * honest gap is better than a confident wrong name, so anything unrecognised
-   * falls through to "sender unknown".
+   * A known mailbox is the strongest signal and wins. Failing that, an address
+   * on a domain we already send from counts too: umamaheshwari.v@sybrant.com
+   * and ravirajan@sybrant.com ran real campaigns and appear on real threads,
+   * but are not in the workspace's inbox list, so a mailbox-only rule filed
+   * five genuine threads as "sender unknown".
    *
-   * Without a list to check against, the first usable address is still used —
-   * this degrades rather than failing.
+   * Anything else does not. A quoted or forwarded message can be filed as
+   * outbound carrying a prospect's address — bchernett@friedmanproperties.com
+   * is the prospect's own colleague — and a confident wrong name in a list
+   * headed "Sending mailbox" is worse than an honest gap.
+   *
+   * Without a list to check against, the first usable address is still used,
+   * so this degrades rather than failing.
    */
-  if (known?.size) return candidates.find((c) => known.has(c)) ?? null;
-  return candidates[0] ?? null;
+  if (!known?.size) return candidates[0] ?? null;
+
+  const exact = candidates.find((c) => known.has(c));
+  if (exact) return exact;
+
+  const ourDomains = new Set(
+    [...known].map((m) => m.slice(m.indexOf("@") + 1)).filter(Boolean),
+  );
+  return (
+    candidates.find((c) => ourDomains.has(c.slice(c.indexOf("@") + 1))) ?? null
+  );
 }
 
 /** The addresses of every mailbox QuickMail knows about, lowercased. */
