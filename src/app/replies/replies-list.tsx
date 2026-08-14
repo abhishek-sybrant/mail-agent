@@ -556,15 +556,19 @@ function ThreadCard({
      * opacities of one of them, produced a difference of about two points of
      * lightness. Real, measurable, and invisible on a screen.
      *
-     * These two are sixteen steps apart on the neutral scale, which reads as a
-     * stripe without shouting. Both halves carry a dark-mode counterpart, so
-     * the pattern survives the theme rather than inverting into mud.
+     * One grey at two strengths — 75% and 48% — so the pair stays related
+     * rather than reading as two different colours. Light enough that the body
+     * text keeps its contrast: these rows carry whole emails, signatures
+     * included, not one line of summary.
+     *
+     * Both halves carry a dark-mode counterpart, so the pattern survives the
+     * theme rather than inverting into mud.
      */
     <Card
       className={cn(
         index % 2 === 0
-          ? "bg-neutral-100 dark:bg-neutral-800"
-          : "bg-neutral-200/70 dark:bg-neutral-700/50",
+          ? "bg-neutral-300/75 dark:bg-neutral-700/75"
+          : "bg-neutral-300/48 dark:bg-neutral-700/48",
         item.handledAt && "opacity-70",
       )}
     >
